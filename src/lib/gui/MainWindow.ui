@@ -18,8 +18,20 @@
     </sizepolicy>
    </property>
    <layout class="QVBoxLayout" name="_2">
+    <property name="leftMargin">
+     <number>12</number>
+    </property>
+    <property name="topMargin">
+     <number>12</number>
+    </property>
+    <property name="rightMargin">
+     <number>12</number>
+    </property>
+    <property name="bottomMargin">
+     <number>12</number>
+    </property>
     <property name="spacing">
-     <number>3</number>
+     <number>8</number>
     </property>
     <item>
      <widget class="QWidget" name="widget" native="true">
@@ -37,16 +49,19 @@
       </property>
       <layout class="QHBoxLayout" name="horizontalLayout_5">
        <property name="leftMargin">
-        <number>3</number>
+        <number>0</number>
        </property>
        <property name="topMargin">
-        <number>3</number>
+        <number>0</number>
        </property>
        <property name="rightMargin">
-        <number>3</number>
+        <number>0</number>
        </property>
        <property name="bottomMargin">
-        <number>3</number>
+        <number>0</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
        </property>
        <item>
         <widget class="QLabel" name="labelComputerName">
@@ -159,6 +174,21 @@
        <string/>
       </property>
       <layout class="QVBoxLayout" name="verticalLayout">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
+       </property>
        <item>
         <widget class="QWidget" name="widgetModeSelection" native="true">
          <property name="sizePolicy">
@@ -168,6 +198,9 @@
           </sizepolicy>
          </property>
          <layout class="QHBoxLayout" name="horizontalLayout">
+          <property name="spacing">
+           <number>12</number>
+          </property>
           <item>
            <widget class="QRadioButton" name="rbModeServer">
             <property name="sizePolicy">
@@ -208,6 +241,9 @@
           </sizepolicy>
          </property>
          <layout class="QHBoxLayout" name="horizontalLayout_2">
+          <property name="spacing">
+           <number>12</number>
+          </property>
           <item>
            <widget class="QWidget" name="serverOptions" native="true">
             <property name="sizePolicy">
@@ -240,6 +276,9 @@
              </property>
              <property name="bottomMargin">
               <number>0</number>
+             </property>
+             <property name="spacing">
+              <number>8</number>
              </property>
              <item>
               <widget class="QPushButton" name="btnConfigureServer">
@@ -340,6 +379,9 @@
              </property>
              <property name="bottomMargin">
               <number>0</number>
+             </property>
+             <property name="spacing">
+              <number>8</number>
              </property>
              <item>
               <widget class="QPushButton" name="btnConfigureClient">
@@ -446,6 +488,9 @@
              </property>
              <property name="bottomMargin">
               <number>0</number>
+             </property>
+             <property name="spacing">
+              <number>8</number>
              </property>
              <item>
               <widget class="QPushButton" name="btnToggleCore">
