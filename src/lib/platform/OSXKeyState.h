@@ -9,10 +9,13 @@
 
 #include "OSXAutoTypes.h"
 #include "deskflow/KeyState.h"
+#include "platform/OSXWindowsKeyboard.h"
 
 #include <Carbon/Carbon.h>
 
 #include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 class IOSXKeyResource;
@@ -75,9 +78,21 @@ public:
   bool
   mapDeskflowHotKeyToMac(KeyID key, KeyModifierMask mask, uint32_t &macVirtualKey, uint32_t &macModifierMask) const;
 
+  //! Enable the Windows server keyboard mode
+  /*!
+  Client only. Remote keys are posted by physical position (Windows scancode),
+  with Windows characters for the current input language and the Ctrl/Cmd
+  mapping of \p options. When never called, behaviour is unchanged.
+  */
+  void enableWindowsKeyboard(const deskflow::osx::WindowsKeyboardOptions &options);
+
   //@}
 
   // IKeyState overrides
+  void fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang) override;
+  bool fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang) override;
+  bool fakeKeyUp(KeyButton button) override;
+  void fakeAllKeysUp() override;
   bool fakeCtrlAltDel() override;
   bool fakeMediaKey(KeyID id) override;
   KeyModifierMask pollActiveModifiers() const override;
@@ -140,6 +155,20 @@ private:
 
   void postKeyboardKey(CGKeyCode virtualKey, bool keyDown);
 
+  // Post a key or modifier key event, updating the modifier state.
+  void postVirtualKey(CGKeyCode virtualKey, bool keyDown);
+
+  // Windows server keyboard mode: post the events produced by the mapper.
+  void postWindowsKeyboardActions(const deskflow::osx::KeyActions &actions);
+
+  // Windows server keyboard mode: post a typing key carrying the Windows
+  // character of the current input language. Returns false if no character.
+  bool postWindowsTextKey(const deskflow::osx::KeyAction &action);
+
+  // Windows server keyboard mode: key layout data of the PC variant of the
+  // current input source, or null if there is none.
+  CFDataRef windowsTextLayoutData();
+
 private:
   // OS X uses a physical key if 0 for the 'A' key.  deskflow reserves
   // KeyButton 0 so we offset all OS X physical key ids by this much
@@ -168,4 +197,10 @@ private:
   bool m_controlRightPressed;
   bool m_altRightPressed;
   bool m_superRightPressed;
+
+  // Windows server keyboard mode (null when disabled)
+  std::unique_ptr<deskflow::osx::WindowsKeyboardMapper> m_windowsKeyboard;
+  // PC layout used for Windows characters, cached per current input source
+  AutoTISInputSourceRef m_windowsTextSource{nullptr, CFRelease};
+  std::string m_windowsTextSourceFor;
 };

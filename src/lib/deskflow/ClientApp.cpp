@@ -111,7 +111,14 @@ deskflow::Computer *ClientApp::createComputer()
       getEvents()
   );
 #elif defined(Q_OS_MACOS)
-  return new deskflow::Computer(new OSXComputer(getEvents(), false, languageSync), getEvents());
+  deskflow::osx::WindowsKeyboardOptions windowsKeyboard;
+  windowsKeyboard.enabled = Settings::value(Settings::Client::PhysicalKeys).toBool();
+  windowsKeyboard.swapCtrlCmd = Settings::value(Settings::Client::SwapCtrlCmd).toBool();
+  LOG_INFO(
+      "windows server keyboard mode is %s%s", windowsKeyboard.enabled ? "enabled" : "disabled",
+      windowsKeyboard.enabled && windowsKeyboard.swapCtrlCmd ? " (ctrl and cmd swapped)" : ""
+  );
+  return new deskflow::Computer(new OSXComputer(getEvents(), false, languageSync, windowsKeyboard), getEvents());
 #else
   if (deskflow::platform::isWayland()) {
 #if WINAPI_LIBEI

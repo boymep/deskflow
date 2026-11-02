@@ -675,6 +675,15 @@ void OSXKeyState::postKeyboardKey(CGKeyCode virtualKey, bool keyDown)
   }
 }
 
+void OSXKeyState::postVirtualKey(CGKeyCode virtualKey, bool keyDown)
+{
+  setKeyboardModifiers(virtualKey, keyDown);
+  if (postHIDVirtualKey(virtualKey, keyDown) != KERN_SUCCESS) {
+    LOG_WARN("fail to post hid event");
+    postKeyboardKey(virtualKey, keyDown);
+  }
+}
+
 void OSXKeyState::fakeKey(const Keystroke &keystroke)
 {
   switch (keystroke.m_type) {
@@ -689,12 +698,7 @@ void OSXKeyState::fakeKey(const Keystroke &keystroke)
         client
     );
 
-    setKeyboardModifiers(virtualKey, keyDown);
-    if (postHIDVirtualKey(virtualKey, keyDown) != KERN_SUCCESS) {
-      LOG_WARN("fail to post hid event");
-      postKeyboardKey(virtualKey, keyDown);
-    }
-
+    postVirtualKey(virtualKey, keyDown);
     break;
   }
 
@@ -1010,4 +1014,219 @@ KeyButton OSXKeyState::mapVirtualKeyToKeyButton(uint32_t keyCode)
 uint32_t OSXKeyState::mapKeyButtonToVirtualKey(KeyButton keyButton)
 {
   return static_cast<uint32_t>(keyButton - KeyButtonOffset);
+}
+
+//
+// Windows server keyboard mode
+//
+
+namespace {
+
+// Lock states are the only part of the server's modifier mask the KeyID
+// fallback may use; the held modifiers are already posted by the mapper.
+const KeyModifierMask s_lockModifiers = KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
+
+// UCKeyTranslate keyboard type for the PC layouts: an ANSI type, so that
+// kVK_ANSI_Grave is the key left of 1 (RussianWin maps it to ] with ISO types).
+const UInt32 s_ansiKeyboardType = 40;
+
+std::string toStdString(CFStringRef string)
+{
+  if (string == nullptr) {
+    return {};
+  }
+  char buffer[256] = {};
+  if (!CFStringGetCString(string, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
+    return {};
+  }
+  return buffer;
+}
+
+} // namespace
+
+void OSXKeyState::enableWindowsKeyboard(const deskflow::osx::WindowsKeyboardOptions &options)
+{
+  m_windowsKeyboard = std::make_unique<deskflow::osx::WindowsKeyboardMapper>(options.swapCtrlCmd);
+  LOG_INFO(
+      "windows server keyboard: physical keys, windows characters, ctrl/cmd %s",
+      options.swapCtrlCmd ? "swapped" : "unchanged"
+  );
+}
+
+void OSXKeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang)
+{
+  if (!m_windowsKeyboard) {
+    KeyState::fakeKeyDown(id, mask, button, lang);
+    return;
+  }
+
+  deskflow::osx::KeyActions actions;
+  if (m_windowsKeyboard->keyDown(button, actions)) {
+    LOG_VERBOSE("windows keyboard: server button %03x down, %zu events", button, actions.size());
+    postWindowsKeyboardActions(actions);
+    return;
+  }
+
+  // no physical equivalent (media and lock keys): use the character, but
+  // ignore the server's language, like with language sync off
+  LOG_DEBUG("windows keyboard: no mac key for server button %03x, using key id %04x", button, id);
+  KeyState::fakeKeyDown(id, mask & s_lockModifiers, button, std::string());
+}
+
+bool OSXKeyState::fakeKeyRepeat(
+    KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang
+)
+{
+  if (!m_windowsKeyboard) {
+    return KeyState::fakeKeyRepeat(id, mask, count, button, lang);
+  }
+
+  deskflow::osx::KeyActions actions;
+  if (m_windowsKeyboard->keyRepeat(button, count, actions)) {
+    postWindowsKeyboardActions(actions);
+    return true;
+  }
+  return KeyState::fakeKeyRepeat(id, mask & s_lockModifiers, count, button, std::string());
+}
+
+bool OSXKeyState::fakeKeyUp(KeyButton button)
+{
+  if (m_windowsKeyboard) {
+    deskflow::osx::KeyActions actions;
+    if (m_windowsKeyboard->keyUp(button, actions)) {
+      LOG_VERBOSE("windows keyboard: server button %03x up, %zu events", button, actions.size());
+      postWindowsKeyboardActions(actions);
+      return true;
+    }
+  }
+  return KeyState::fakeKeyUp(button);
+}
+
+void OSXKeyState::fakeAllKeysUp()
+{
+  if (m_windowsKeyboard) {
+    deskflow::osx::KeyActions actions;
+    m_windowsKeyboard->allKeysUp(actions);
+    postWindowsKeyboardActions(actions);
+  }
+  KeyState::fakeAllKeysUp();
+}
+
+void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &actions)
+{
+  for (const auto &action : actions) {
+    if (action.text && postWindowsTextKey(action)) {
+      continue;
+    }
+    const int32_t count = action.repeat ? action.count : 1;
+    for (int32_t i = 0; i < count; ++i) {
+      postVirtualKey(static_cast<CGKeyCode>(action.virtualKey), action.down);
+    }
+  }
+}
+
+bool OSXKeyState::postWindowsTextKey(const deskflow::osx::KeyAction &action)
+{
+  CFDataRef layoutData = windowsTextLayoutData();
+  if (layoutData == nullptr) {
+    return false;
+  }
+
+  UInt32 modifierState = 0;
+  if (action.shift) {
+    modifierState |= (shiftKey >> 8) & 0xff;
+  }
+  if (CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState) & kCGEventFlagMaskAlphaShift) {
+    modifierState |= (alphaLock >> 8) & 0xff;
+  }
+
+  UInt32 deadKeyState = 0;
+  UniChar chars[4] = {};
+  UniCharCount length = 0;
+  const auto *layout = reinterpret_cast<const UCKeyboardLayout *>(CFDataGetBytePtr(layoutData));
+  const OSStatus status = UCKeyTranslate(
+      layout, action.textKey, kUCKeyActionDown, modifierState, s_ansiKeyboardType, kUCKeyTranslateNoDeadKeysMask,
+      &deadKeyState, sizeof(chars) / sizeof(chars[0]), &length, chars
+  );
+  if (status != noErr || length == 0 || chars[0] < 0x20 || chars[0] == 0x7f) {
+    return false;
+  }
+
+  // Posted with the physical key code (for apps that look at it) and the
+  // Windows character as the event text. Modifier state comes from the
+  // explicit flags, so ordering against the HID-posted modifiers is irrelevant.
+  const int32_t count = action.repeat ? action.count : 1;
+  for (int32_t i = 0; i < count; ++i) {
+    CGEventRef event = CGEventCreateKeyboardEvent(nullptr, static_cast<CGKeyCode>(action.virtualKey), action.down);
+    if (event == nullptr) {
+      LOG_CRIT("unable to create keyboard event for keystroke");
+      return false;
+    }
+    CGEventSetFlags(event, getKeyboardEventFlags());
+    CGEventSetIntegerValueField(event, kCGKeyboardEventKeyboardType, s_ansiKeyboardType);
+    if (action.repeat) {
+      CGEventSetIntegerValueField(event, kCGKeyboardEventAutorepeat, 1);
+    }
+    CGEventKeyboardSetUnicodeString(event, length, chars);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+  }
+  return true;
+}
+
+CFDataRef OSXKeyState::windowsTextLayoutData()
+{
+  std::lock_guard<std::mutex> lock(g_tisMutex);
+
+  AutoTISInputSourceRef current(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
+  if (!current) {
+    return nullptr;
+  }
+  const auto currentId =
+      toStdString(static_cast<CFStringRef>(TISGetInputSourceProperty(current.get(), kTISPropertyInputSourceID)));
+
+  if (currentId != m_windowsTextSourceFor) {
+    m_windowsTextSourceFor = currentId;
+    m_windowsTextSource.reset();
+
+    if (deskflow::osx::isPcLayout(currentId)) {
+      m_windowsTextSource = std::move(current);
+    } else {
+      // the PC variant does not need to be enabled in System Settings
+      for (const auto &candidate : deskflow::osx::pcLayoutCandidates(currentId)) {
+        CFStringRef candidateId = CFStringCreateWithCString(nullptr, candidate.c_str(), kCFStringEncodingUTF8);
+        if (candidateId == nullptr) {
+          continue;
+        }
+        const void *keys[] = {kTISPropertyInputSourceID};
+        const void *values[] = {candidateId};
+        AutoCFDictionary filter(
+            CFDictionaryCreate(
+                nullptr, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks
+            ),
+            CFRelease
+        );
+        CFRelease(candidateId);
+        if (!filter) {
+          continue;
+        }
+        AutoCFArray sources(TISCreateInputSourceList(filter.get(), true), CFRelease);
+        if (sources && CFArrayGetCount(sources.get()) > 0) {
+          auto source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources.get(), 0);
+          CFRetain(source);
+          m_windowsTextSource.reset(source);
+          break;
+        }
+      }
+    }
+    LOG_DEBUG(
+        "windows keyboard: input source %s uses %s characters", currentId.c_str(),
+        m_windowsTextSource ? "windows" : "mac"
+    );
+  }
+
+  if (!m_windowsTextSource) {
+    return nullptr;
+  }
+  return static_cast<CFDataRef>(TISGetInputSourceProperty(m_windowsTextSource.get(), kTISPropertyUnicodeKeyLayoutData));
 }

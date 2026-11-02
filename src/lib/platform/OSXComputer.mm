@@ -83,7 +83,9 @@ void avoidHesitatingCursor();
 bool OSXComputer::s_testedForGHOM = false;
 bool OSXComputer::s_hasGHOM = false;
 
-OSXComputer::OSXComputer(IEventQueue *events, bool isPrimary, bool enableLangSync)
+OSXComputer::OSXComputer(
+    IEventQueue *events, bool isPrimary, bool enableLangSync, deskflow::osx::WindowsKeyboardOptions windowsKeyboard
+)
     : PlatformComputer(events),
       m_isPrimary(isPrimary),
       m_isOnComputer(m_isPrimary),
@@ -123,6 +125,9 @@ OSXComputer::OSXComputer(IEventQueue *events, bool isPrimary, bool enableLangSyn
   try {
     m_screensaver = new OSXScreenSaver(m_events, getEventTarget());
     m_keyState = new OSXKeyState(m_events, AppUtil::instance().getKeyboardLayoutList(), enableLangSync);
+    if (!m_isPrimary && windowsKeyboard.enabled) {
+      m_keyState->enableWindowsKeyboard(windowsKeyboard);
+    }
 
     if (Settings::value(Settings::Core::PreventSleep).toBool()) {
       m_powerManager.disableSleep();

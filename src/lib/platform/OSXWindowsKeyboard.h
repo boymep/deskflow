@@ -25,6 +25,13 @@ Only events the client synthesizes for the server are affected; the Mac's own
 keyboard is never touched.
 */
 
+//! Client settings for the Windows server keyboard mode.
+struct WindowsKeyboardOptions
+{
+  bool enabled = false;    //!< master switch; off = upstream behaviour
+  bool swapCtrlCmd = true; //!< remote Ctrl -> Command, Windows key -> Control
+};
+
 //! Windows set-1 scancode (0x100 = extended) of a remote key, masked to 9 bits.
 using WindowsScancode = uint16_t;
 

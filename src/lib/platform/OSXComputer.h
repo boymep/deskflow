@@ -11,6 +11,7 @@
 #include "deskflow/PlatformComputer.h"
 #include "platform/OSXClipboard.h"
 #include "platform/OSXPowerManager.h"
+#include "platform/OSXWindowsKeyboard.h"
 
 #include <Carbon/Carbon.h>
 #include <IOKit/IOMessage.h>
@@ -45,7 +46,10 @@ class Mutex;
 class OSXComputer : public PlatformComputer
 {
 public:
-  OSXComputer(IEventQueue *events, bool isPrimary, bool enableLangSync = false);
+  OSXComputer(
+      IEventQueue *events, bool isPrimary, bool enableLangSync = false,
+      deskflow::osx::WindowsKeyboardOptions windowsKeyboard = {}
+  );
 
   virtual ~OSXComputer();
 
