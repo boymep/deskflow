@@ -262,13 +262,24 @@ MacModifiers baseMacModifiers(RemoteModifiers remote, bool swapCtrlCmd)
   return mods;
 }
 
-KeyDecision decideKey(WindowsScancode, MacVirtualKey virtualKey, RemoteModifiers remote, bool swapCtrlCmd)
+KeyDecision decideKey(
+    WindowsScancode, MacVirtualKey virtualKey, RemoteModifiers remote, bool swapCtrlCmd, bool altTabSwitcher,
+    bool switcherOpen
+)
 {
   KeyDecision d;
   d.virtualKey = virtualKey;
   d.modifiers = baseMacModifiers(remote, swapCtrlCmd);
 
   const bool ctrl = (remote & kRemoteCtrl) != 0;
+
+  // Alt+Tab: macOS app switcher. Plain Alt (no Ctrl/Win) only.
+  if (altTabSwitcher && (remote & kRemoteAlt) && (remote & (kRemoteCtrl | kRemoteWin)) == 0 &&
+      (virtualKey == kVK_Tab || switcherOpen)) {
+    d.modifiers = kMacCommandL | macShift(remote);
+    d.switcher = true;
+    return d;
+  }
   const bool otherMods = (remote & (kRemoteAlt | kRemoteWin)) != 0;
   const MacModifiers shift = macShift(remote);
 
@@ -317,7 +328,10 @@ KeyDecision decideKey(WindowsScancode, MacVirtualKey virtualKey, RemoteModifiers
   return d;
 }
 
-WindowsKeyboardMapper::WindowsKeyboardMapper(bool swapCtrlCmd) : m_swapCtrlCmd(swapCtrlCmd)
+WindowsKeyboardMapper::WindowsKeyboardMapper(bool swapCtrlCmd, bool altTabSwitcher, bool ctrlShiftSwitch)
+    : m_swapCtrlCmd(swapCtrlCmd),
+      m_altTabSwitcher(altTabSwitcher),
+      m_ctrlShiftSwitch(ctrlShiftSwitch)
 {
   // nothing else
 }
@@ -328,6 +342,9 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
 
   if (const auto modifier = remoteModifierForScancode(scancode); modifier != 0) {
     if ((m_remote & modifier) == 0) {
+      if (m_remote == 0) {
+        m_chordClean = true; // a new modifier sequence starts
+      }
       m_remote |= modifier;
       m_pressed[scancode].down = true;
       modifierChanged(out);
@@ -346,7 +363,15 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
     return keyRepeat(scancode, 1, out);
   }
 
-  const auto decision = decideKey(scancode, *virtualKey, m_remote, m_swapCtrlCmd);
+  const auto decision = decideKey(scancode, *virtualKey, m_remote, m_swapCtrlCmd, m_altTabSwitcher, m_switcherOpen);
+  // a key between Ctrl and Shift cancels the input source chord
+  if (m_remote != 0) {
+    m_chordClean = false;
+  }
+  m_chordArmed = false;
+  if (decision.switcher) {
+    m_switcherOpen = true;
+  }
   reconcile(decision.modifiers, out);
   out.push_back(keyAction(decision, true));
 
@@ -374,7 +399,7 @@ bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, Key
   }
 
   // modifiers may have changed since the key went down, so decide again
-  const auto decision = decideKey(scancode, *virtualKey, m_remote, m_swapCtrlCmd);
+  const auto decision = decideKey(scancode, *virtualKey, m_remote, m_swapCtrlCmd, m_altTabSwitcher, m_switcherOpen);
   if (decision.virtualKey != pressed.virtualKey) {
     // e.g. Home held, then Ctrl pressed: Left -> Up; release the old key first
     KeyAction up;
@@ -390,6 +415,9 @@ bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, Key
   pressed.textKey = decision.textKey;
   if (decision.sticky) {
     m_sticky = scancode;
+  }
+  if (decision.switcher) {
+    m_switcherOpen = true;
   }
 
   reconcile(decision.modifiers, out);
@@ -444,18 +472,49 @@ void WindowsKeyboardMapper::allKeysUp(KeyActions &out)
   }
   m_remote = 0;
   m_sticky = 0;
+  m_switcherOpen = false;
+  m_chordClean = true;
+  m_chordArmed = false;
   reconcile(0, out);
 }
 
 void WindowsKeyboardMapper::modifierChanged(KeyActions &out)
 {
-  // Extension point (next slice): remote modifier chords such as Ctrl+Shift
-  // (input source switch) are detected here from m_remote transitions.
+  const bool ctrl = (m_remote & kRemoteCtrl) != 0;
+  const bool shift = (m_remote & kRemoteShift) != 0;
+
+  if ((m_remote & ~(kRemoteCtrl | kRemoteShift)) != 0) {
+    m_chordClean = false; // Alt/Win involved
+    m_chordArmed = false;
+  }
+  const bool chordHeld = ctrl && shift;
+  if (chordHeld && m_chordClean) {
+    m_chordArmed = true;
+  } else if (!chordHeld && m_chordArmed) {
+    // first of Ctrl/Shift released with nothing else in between
+    m_chordArmed = false;
+    m_chordClean = false;
+    if (m_ctrlShiftSwitch) {
+      KeyAction action;
+      action.switchInputSource = true;
+      out.push_back(action);
+    }
+  } else if (!chordHeld) {
+    m_chordArmed = false;
+  }
+
   reconcile(restModifiers(), out);
 }
 
 MacModifiers WindowsKeyboardMapper::restModifiers()
 {
+  if (m_switcherOpen) {
+    // app switcher stays open while Alt is held (and nothing else changes the chord)
+    if ((m_remote & kRemoteAlt) && (m_remote & (kRemoteCtrl | kRemoteWin)) == 0) {
+      return static_cast<MacModifiers>(kMacCommandL | macShift(m_remote));
+    }
+    m_switcherOpen = false;
+  }
   if (m_sticky != 0) {
     const auto virtualKey = windowsScancodeToMacVirtualKey(m_sticky);
     if (virtualKey.has_value()) {

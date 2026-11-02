@@ -30,6 +30,8 @@ struct WindowsKeyboardOptions
 {
   bool enabled = false;    //!< master switch; off = upstream behaviour
   bool swapCtrlCmd = true; //!< remote Ctrl -> Command, Windows key -> Control
+  bool altTabAppSwitcher = true;       //!< remote Alt+Tab -> Command+Tab (macOS app switcher)
+  bool ctrlShiftSwitchesLayout = true; //!< remote Ctrl+Shift alone -> next Mac input source
 };
 
 //! Windows set-1 scancode (0x100 = extended) of a remote key, masked to 9 bits.
@@ -102,6 +104,7 @@ struct KeyDecision
   MacVirtualKey virtualKey = 0;  //!< key to post (may differ from the physical key, e.g. Home -> Left)
   MacModifiers modifiers = 0;    //!< Mac modifiers that must be held while the key is posted
   bool sticky = false;           //!< keep \c modifiers after key up until the triggering modifier is released
+  bool switcher = false;         //!< Alt+Tab app switcher: Command stays while Alt is held, other keys use Command
   bool allowText = false;        //!< plain typing: may carry the Windows character of the current language
   MacVirtualKey textKey = 0;     //!< virtual key to translate for the character (valid if allowText)
 };
@@ -111,7 +114,15 @@ struct KeyDecision
 Applies the Windows editing-key exceptions (Ctrl+Backspace, Home/End, ...) and
 the Ctrl+Tab exception; otherwise returns the base modifier mapping.
 */
-KeyDecision decideKey(WindowsScancode scancode, MacVirtualKey virtualKey, RemoteModifiers remote, bool swapCtrlCmd);
+/*!
+With \p altTabSwitcher, Alt+Tab (no Ctrl/Win) becomes Command+Tab. While the switcher is open
+(\p switcherOpen, i.e. Alt still held after Alt+Tab) every other key is posted with Command too,
+so switcher shortcuts (arrows, Q, W, H, Esc) work as on a Mac.
+*/
+KeyDecision decideKey(
+    WindowsScancode scancode, MacVirtualKey virtualKey, RemoteModifiers remote, bool swapCtrlCmd,
+    bool altTabSwitcher = false, bool switcherOpen = false
+);
 
 //! One event the platform layer must post, in order.
 struct KeyAction
@@ -124,6 +135,7 @@ struct KeyAction
   bool text = false;            //!< attach the Windows character of \c textKey
   MacVirtualKey textKey = 0;    //!< virtual key to translate for the character
   bool shift = false;           //!< remote Shift held (for the character)
+  bool switchInputSource = false; //!< not a key event: select the next Mac input source
 };
 using KeyActions = std::vector<KeyAction>;
 
@@ -138,14 +150,17 @@ Sticky decisions (Ctrl+Tab -> Control+Tab) become the rest set until the
 triggering remote modifier is released, so tab pickers stay open while Ctrl is
 held. Releases are always posted before presses.
 
-Extension point for the next slice: chord handling for remote modifier keys
-(e.g. Ctrl+Shift -> switch input source) belongs in modifierChanged(), and new
-key remaps (e.g. Alt+Tab -> Command+Tab, sticky) belong in decideKey().
+Alt+Tab opens the macOS app switcher: Command is held (instead of Option) and
+stays held, together with any other key pressed meanwhile, until Alt is released.
+
+Ctrl+Shift chord: when remote Ctrl and Shift were held together with no other
+key or modifier since all modifiers were last released, releasing either one
+emits a KeyAction with switchInputSource set (once per chord).
 */
 class WindowsKeyboardMapper
 {
 public:
-  explicit WindowsKeyboardMapper(bool swapCtrlCmd);
+  explicit WindowsKeyboardMapper(bool swapCtrlCmd, bool altTabSwitcher = false, bool ctrlShiftSwitch = false);
 
   //! Returns false if the key is not handled here (use the KeyID path).
   bool keyDown(WindowsScancode button, KeyActions &out);
@@ -182,6 +197,11 @@ private:
   static constexpr size_t kNumScancodes = 0x200;
 
   bool m_swapCtrlCmd;
+  bool m_altTabSwitcher;
+  bool m_ctrlShiftSwitch;
+  bool m_switcherOpen = false;
+  bool m_chordClean = true; //!< only Ctrl/Shift pressed since all modifiers were last released
+  bool m_chordArmed = false; //!< Ctrl and Shift are both held and the chord is still clean
   RemoteModifiers m_remote = 0;
   MacModifiers m_posted = 0;
   WindowsScancode m_sticky = 0;

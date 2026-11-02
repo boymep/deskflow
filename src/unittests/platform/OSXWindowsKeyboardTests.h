@@ -23,4 +23,10 @@ private Q_SLOTS:
   void mapperHomeEndShift();
   void mapperRepeatAndUnknownKeys();
   void mapperAllKeysUp();
+  void decideAltTab();
+  void mapperAltTabSwitcher();
+  void mapperAltShiftTabBackwards();
+  void mapperAltTabDisabled();
+  void mapperCtrlShiftChord();
+  void mapperCtrlShiftChordCancelled();
 };

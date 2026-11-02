@@ -17,6 +17,10 @@ namespace {
 constexpr WindowsScancode kScLCtrl = 0x1d;
 constexpr WindowsScancode kScRCtrl = 0x11d;
 constexpr WindowsScancode kScLShift = 0x2a;
+constexpr WindowsScancode kScRShift = 0x36;
+constexpr WindowsScancode kScT = 0x14;
+constexpr WindowsScancode kScQ = 0x10;
+constexpr WindowsScancode kScLeft = 0x14b;
 constexpr WindowsScancode kScLAlt = 0x38;
 constexpr WindowsScancode kScLWin = 0x15b;
 constexpr WindowsScancode kScW = 0x11;
@@ -32,6 +36,10 @@ QString describe(const KeyActions &actions)
 {
   QStringList parts;
   for (const auto &a : actions) {
+    if (a.switchInputSource) {
+      parts << "S";
+      continue;
+    }
     QString prefix = a.isModifier ? (a.down ? "+" : "-") : (a.down ? (a.repeat ? "R" : "K") : "k");
     parts << prefix + QString::number(a.virtualKey, 16) + (a.text ? "t" : "");
   }
@@ -325,6 +333,189 @@ void OSXWindowsKeyboardTests::mapperAllKeysUp()
   QCOMPARE(m.remoteModifiers(), RemoteModifiers(0));
   out.clear();
   QVERIFY(!m.keyUp(kScLCtrl, out));
+}
+
+void OSXWindowsKeyboardTests::decideAltTab()
+{
+  const auto alt = RemoteModifiers(kRemoteAltL);
+  auto d = decideKey(kScTab, kVK_Tab, alt, true, true, false);
+  QCOMPARE(d.virtualKey, MacVirtualKey(kVK_Tab));
+  QCOMPARE(d.modifiers, MacModifiers(kMacCommandL));
+  QVERIFY(d.switcher);
+
+  d = decideKey(kScTab, kVK_Tab, RemoteModifiers(kRemoteAltL | kRemoteShiftL), true, true, false);
+  QCOMPARE(d.modifiers, MacModifiers(kMacCommandL | kMacShiftL));
+
+  // disabled, or other modifiers involved: no switcher
+  QVERIFY(!decideKey(kScTab, kVK_Tab, alt, true, false, false).switcher);
+  QVERIFY(!decideKey(kScTab, kVK_Tab, RemoteModifiers(kRemoteAltL | kRemoteCtrlL), true, true, false).switcher);
+  // other keys only join the switcher while it is open
+  QVERIFY(!decideKey(kScQ, kVK_ANSI_Q, alt, true, true, false).switcher);
+  d = decideKey(kScQ, kVK_ANSI_Q, alt, true, true, true);
+  QVERIFY(d.switcher);
+  QCOMPARE(d.modifiers, MacModifiers(kMacCommandL));
+}
+
+void OSXWindowsKeyboardTests::mapperAltTabSwitcher()
+{
+  WindowsKeyboardMapper m(true, true, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  QCOMPARE(describe(out), QString("+3a"));
+  out.clear();
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  // Command stays held after Tab is released
+  QCOMPARE(describe(out), QString("-3a +37 K30 k30"));
+  QCOMPARE(m.postedModifiers(), MacModifiers(kMacCommandL));
+  out.clear();
+  // repeated Tab, then another switcher key (Q) and an arrow keep Command
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  m.keyDown(kScQ, out);
+  m.keyUp(kScQ, out);
+  m.keyDown(kScLeft, out);
+  m.keyUp(kScLeft, out);
+  QCOMPARE(describe(out), QString("K30 k30 Kc kc K7b k7b"));
+  QCOMPARE(m.postedModifiers(), MacModifiers(kMacCommandL));
+  out.clear();
+  // releasing Alt closes the switcher and returns to the rest set
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("-37"));
+  QCOMPARE(m.postedModifiers(), MacModifiers(0));
+  out.clear();
+  // after that Alt maps to Option again
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScQ, out);
+  m.keyUp(kScQ, out);
+  QCOMPARE(describe(out), QString("+3a Kc kc"));
+}
+
+void OSXWindowsKeyboardTests::mapperAltShiftTabBackwards()
+{
+  WindowsKeyboardMapper m(true, true, false);
+  KeyActions out;
+  m.keyDown(kScLShift, out);
+  m.keyDown(kScLAlt, out);
+  out.clear();
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  QCOMPARE(describe(out), QString("-3a +37 K30 k30"));
+  QCOMPARE(m.postedModifiers(), MacModifiers(kMacCommandL | kMacShiftL));
+  out.clear();
+  // Shift released while Alt is still held: switcher stays open
+  m.keyUp(kScLShift, out);
+  QCOMPARE(describe(out), QString("-38"));
+  QCOMPARE(m.postedModifiers(), MacModifiers(kMacCommandL));
+  out.clear();
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("-37"));
+}
+
+void OSXWindowsKeyboardTests::mapperAltTabDisabled()
+{
+  WindowsKeyboardMapper m(true, false, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  QCOMPARE(describe(out), QString("+3a K30 k30"));
+}
+
+void OSXWindowsKeyboardTests::mapperCtrlShiftChord()
+{
+  WindowsKeyboardMapper m(true, true, true);
+  KeyActions out;
+
+  // Ctrl, Shift, release Shift first: one switch, modifiers still posted
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScLShift, out);
+  QCOMPARE(describe(out), QString("+37 +38"));
+  out.clear();
+  m.keyUp(kScLShift, out);
+  QCOMPARE(describe(out), QString("S -38"));
+  out.clear();
+  m.keyUp(kScLCtrl, out);
+  QCOMPARE(describe(out), QString("-37"));
+
+  // Shift first, release Ctrl first (right-hand keys)
+  out.clear();
+  m.keyDown(kScRShift, out);
+  m.keyDown(kScRCtrl, out);
+  out.clear();
+  m.keyUp(kScRCtrl, out);
+  QCOMPARE(describe(out), QString("S -36"));
+  out.clear();
+  m.keyUp(kScRShift, out);
+  QCOMPARE(describe(out), QString("-3c"));
+}
+
+void OSXWindowsKeyboardTests::mapperCtrlShiftChordCancelled()
+{
+  WindowsKeyboardMapper m(true, true, true);
+  auto switches = [](const KeyActions &out) {
+    int n = 0;
+    for (const auto &a : out)
+      n += a.switchInputSource ? 1 : 0;
+    return n;
+  };
+  KeyActions out;
+
+  // Ctrl+Shift+T
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScLShift, out);
+  m.keyDown(kScT, out);
+  m.keyUp(kScT, out);
+  m.keyUp(kScLShift, out);
+  m.keyUp(kScLCtrl, out);
+  QCOMPARE(switches(out), 0);
+
+  // Ctrl+T, then Shift, then release
+  out.clear();
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScT, out);
+  m.keyUp(kScT, out);
+  m.keyDown(kScLShift, out);
+  m.keyUp(kScLShift, out);
+  m.keyUp(kScLCtrl, out);
+  QCOMPARE(switches(out), 0);
+
+  // Shift+A typed, then Ctrl pressed and released while Shift is held
+  out.clear();
+  m.keyDown(kScLShift, out);
+  m.keyDown(kScA, out);
+  m.keyUp(kScA, out);
+  m.keyDown(kScLCtrl, out);
+  m.keyUp(kScLCtrl, out);
+  m.keyUp(kScLShift, out);
+  QCOMPARE(switches(out), 0);
+
+  // Alt joins the chord
+  out.clear();
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScLShift, out);
+  m.keyDown(kScLAlt, out);
+  m.keyUp(kScLAlt, out);
+  m.keyUp(kScLShift, out);
+  m.keyUp(kScLCtrl, out);
+  QCOMPARE(switches(out), 0);
+
+  // a clean chord still works afterwards, and only once
+  out.clear();
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScLShift, out);
+  m.keyUp(kScLCtrl, out);
+  m.keyUp(kScLShift, out);
+  QCOMPARE(switches(out), 1);
+
+  // disabled setting: no action
+  WindowsKeyboardMapper off(true, true, false);
+  out.clear();
+  off.keyDown(kScLCtrl, out);
+  off.keyDown(kScLShift, out);
+  off.keyUp(kScLShift, out);
+  off.keyUp(kScLCtrl, out);
+  QCOMPARE(switches(out), 0);
 }
 
 QTEST_MAIN(OSXWindowsKeyboardTests)
