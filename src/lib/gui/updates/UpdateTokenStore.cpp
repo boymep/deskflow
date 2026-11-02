@@ -6,6 +6,7 @@
 
 #include "UpdateTokenStore.h"
 
+#include <QCoreApplication>
 #include <QDebug>
 
 #if defined(Q_OS_MACOS)
@@ -73,7 +74,7 @@ bool UpdateTokenStore::isSupported()
 
 QString UpdateTokenStore::storeName()
 {
-  return QStringLiteral("macOS Keychain");
+  return QCoreApplication::translate("UpdateTokenStore", "macOS Keychain");
 }
 
 bool UpdateTokenStore::hasToken()
@@ -157,7 +158,7 @@ bool UpdateTokenStore::isSupported()
 
 QString UpdateTokenStore::storeName()
 {
-  return QStringLiteral("Windows Credential Manager");
+  return QCoreApplication::translate("UpdateTokenStore", "Windows Credential Manager");
 }
 
 bool UpdateTokenStore::hasToken()

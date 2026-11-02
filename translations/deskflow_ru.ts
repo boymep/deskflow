@@ -1299,7 +1299,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>It is stored in the %1.</source>
-        <translation>Хранится в %1.</translation>
+        <translation>Хранится в хранилище: %1.</translation>
     </message>
     <message>
         <source>Only available on macOS and Windows</source>
@@ -1307,7 +1307,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Saved in the %1</source>
-        <translation>Сохранён в %1</translation>
+        <translation>Сохранён в хранилище: %1</translation>
     </message>
     <message>
         <source>Paste a token to check for updates</source>
@@ -1319,7 +1319,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>Could not save the GitHub token to the %1.</source>
-        <translation>Не удалось сохранить токен GitHub в %1.</translation>
+        <translation>Не удалось сохранить токен GitHub в хранилище: %1.</translation>
     </message>
     <message>
         <source>Automatic</source>
@@ -1504,6 +1504,17 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
 </context>
 <context>
+    <name>UpdateTokenStore</name>
+    <message>
+        <source>macOS Keychain</source>
+        <translation>Связка ключей macOS</translation>
+    </message>
+    <message>
+        <source>Windows Credential Manager</source>
+        <translation>Диспетчер учётных данных Windows</translation>
+    </message>
+</context>
+<context>
     <name>deskflow::gui::updates::GitHubUpdater</name>
     <message>
         <source>The download was cancelled.</source>
@@ -1646,7 +1657,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>&lt;p&gt;To check for updates, add a GitHub token in Settings.&lt;/p&gt;&lt;p&gt;Create a fine-grained token with read-only &lt;b&gt;Contents&lt;/b&gt; access to the %1/%2 repository. It is stored in the %3.&lt;/p&gt;</source>
-        <translation>&lt;p&gt;Чтобы проверять обновления, добавьте токен GitHub в настройках.&lt;/p&gt;&lt;p&gt;Создайте детализированный токен с доступом «только чтение» к &lt;b&gt;Contents&lt;/b&gt; репозитория %1/%2. Он хранится в %3.&lt;/p&gt;</translation>
+        <translation>&lt;p&gt;Чтобы проверять обновления, добавьте токен GitHub в настройках.&lt;/p&gt;&lt;p&gt;Создайте детализированный токен с доступом «только чтение» к &lt;b&gt;Contents&lt;/b&gt; репозитория %1/%2. Он хранится в хранилище: %3.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>Could not check for updates.
