@@ -41,7 +41,10 @@ void ClientConfigDialog::updateControls() const
 {
   const auto writable = Settings::isWritable();
   ui->cbDynamicConnectTime->setEnabled(writable);
-  ui->cbLanguageSync->setEnabled(writable);
+  // language sync only affects character mapping, which the Windows keyboard mode bypasses
+  ui->cbLanguageSync->setEnabled(writable && !ui->cbPhysicalKeys->isChecked());
+  ui->cbPhysicalKeys->setEnabled(writable);
+  ui->cbSwapCtrlCmd->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
   ui->cbXScrollInvert->setEnabled(writable);
   ui->sbXScrollScale->setEnabled(writable);
   ui->cbYScrollInvert->setEnabled(writable);
@@ -59,6 +62,9 @@ void ClientConfigDialog::initConnections() const
       ui->cbDynamicConnectTime, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons
   );
   connect(ui->cbLanguageSync, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbPhysicalKeys, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbPhysicalKeys, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::updateControls);
+  connect(ui->cbSwapCtrlCmd, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbYScrollInvert, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->sbYScrollScale, &QDoubleSpinBox::valueChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbXScrollInvert, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
@@ -71,6 +77,8 @@ bool ClientConfigDialog::isModified() const
   return (ui->cbDynamicConnectTime->isChecked() != Settings::value(Settings::Client::DynamicConnectionRetry).toBool()
          ) ||
          (ui->cbLanguageSync->isChecked() != Settings::value(Settings::Client::LanguageSync).toBool()) ||
+         (ui->cbPhysicalKeys->isChecked() != Settings::value(Settings::Client::PhysicalKeys).toBool()) ||
+         (ui->cbSwapCtrlCmd->isChecked() != Settings::value(Settings::Client::SwapCtrlCmd).toBool()) ||
          (ui->cbYScrollInvert->isChecked() != Settings::value(Settings::Client::InvertYScroll).toBool()) ||
          (ui->sbYScrollScale->value() != Settings::value(Settings::Client::YScrollScale).toDouble()) ||
          (ui->cbXScrollInvert->isChecked() != Settings::value(Settings::Client::InvertXScroll).toBool()) ||
@@ -82,6 +90,8 @@ bool ClientConfigDialog::isDefault() const
   return (ui->cbDynamicConnectTime->isChecked() ==
           Settings::defaultValue(Settings::Client::DynamicConnectionRetry).toBool()) &&
          (ui->cbLanguageSync->isChecked() == Settings::defaultValue(Settings::Client::LanguageSync).toBool()) &&
+         (ui->cbPhysicalKeys->isChecked() == Settings::defaultValue(Settings::Client::PhysicalKeys).toBool()) &&
+         (ui->cbSwapCtrlCmd->isChecked() == Settings::defaultValue(Settings::Client::SwapCtrlCmd).toBool()) &&
          (ui->cbYScrollInvert->isChecked() == Settings::defaultValue(Settings::Client::InvertYScroll).toBool()) &&
          (ui->sbYScrollScale->value() == Settings::defaultValue(Settings::Client::YScrollScale).toDouble()) &&
          (ui->cbXScrollInvert->isChecked() == Settings::defaultValue(Settings::Client::InvertXScroll).toBool()) &&
@@ -100,6 +110,8 @@ void ClientConfigDialog::load()
 {
   ui->cbDynamicConnectTime->setChecked(Settings::value(Settings::Client::DynamicConnectionRetry).toBool());
   ui->cbLanguageSync->setChecked(Settings::value(Settings::Client::LanguageSync).toBool());
+  ui->cbPhysicalKeys->setChecked(Settings::value(Settings::Client::PhysicalKeys).toBool());
+  ui->cbSwapCtrlCmd->setChecked(Settings::value(Settings::Client::SwapCtrlCmd).toBool());
   ui->cbYScrollInvert->setChecked(Settings::value(Settings::Client::InvertYScroll).toBool());
   ui->sbYScrollScale->setValue(Settings::value(Settings::Client::YScrollScale).toDouble());
   ui->cbXScrollInvert->setChecked(Settings::value(Settings::Client::InvertXScroll).toBool());
@@ -110,6 +122,8 @@ void ClientConfigDialog::resetToDefault()
 {
   ui->cbDynamicConnectTime->setChecked(Settings::defaultValue(Settings::Client::DynamicConnectionRetry).toBool());
   ui->cbLanguageSync->setChecked(Settings::defaultValue(Settings::Client::LanguageSync).toBool());
+  ui->cbPhysicalKeys->setChecked(Settings::defaultValue(Settings::Client::PhysicalKeys).toBool());
+  ui->cbSwapCtrlCmd->setChecked(Settings::defaultValue(Settings::Client::SwapCtrlCmd).toBool());
   ui->cbYScrollInvert->setChecked(Settings::defaultValue(Settings::Client::InvertYScroll).toBool());
   ui->sbYScrollScale->setValue(Settings::defaultValue(Settings::Client::YScrollScale).toDouble());
   ui->cbXScrollInvert->setChecked(Settings::defaultValue(Settings::Client::InvertXScroll).toBool());
@@ -120,6 +134,8 @@ void ClientConfigDialog::save()
 {
   Settings::setValue(Settings::Client::DynamicConnectionRetry, ui->cbDynamicConnectTime->isChecked());
   Settings::setValue(Settings::Client::LanguageSync, ui->cbLanguageSync->isChecked());
+  Settings::setValue(Settings::Client::PhysicalKeys, ui->cbPhysicalKeys->isChecked());
+  Settings::setValue(Settings::Client::SwapCtrlCmd, ui->cbSwapCtrlCmd->isChecked());
   Settings::setValue(Settings::Client::InvertYScroll, ui->cbYScrollInvert->isChecked());
   Settings::setValue(Settings::Client::YScrollScale, ui->sbYScrollScale->value());
   Settings::setValue(Settings::Client::InvertXScroll, ui->cbXScrollInvert->isChecked());

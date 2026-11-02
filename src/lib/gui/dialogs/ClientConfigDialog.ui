@@ -38,6 +38,26 @@
     </widget>
    </item>
    <item>
+    <widget class="QCheckBox" name="cbPhysicalKeys">
+     <property name="toolTip">
+      <string>macOS client with a Windows server only. Keys from the server keyboard keep their physical position and type the Windows characters of this Mac's current input language. Windows editing keys (Ctrl+Backspace, Ctrl+Delete, Ctrl+Arrows, Home, End, Ctrl+Y) get their macOS equivalents. This Mac's own keyboard is not affected. Language sync has no effect in this mode.</string>
+     </property>
+     <property name="text">
+      <string>Windows server keyboard (physical keys)</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="cbSwapCtrlCmd">
+     <property name="toolTip">
+      <string>Server Ctrl acts as Command and the Windows key as Control. Ctrl+Tab stays Control+Tab.</string>
+     </property>
+     <property name="text">
+      <string>Swap Ctrl and Cmd</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="groupBox">
      <property name="title">
       <string>Scroll Modifiers</string>
