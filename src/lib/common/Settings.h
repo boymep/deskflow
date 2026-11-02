@@ -362,7 +362,6 @@ private:
     , Client::InvertYScroll
     , Client::InvertXScroll
     , Client::LanguageSync
-    , Client::PhysicalKeys
     , Client::XdpClipboardRetried
     , Log::ToFile
     , Log::GuiDebug
@@ -379,6 +378,7 @@ private:
   // When checking the default values this list contains the ones that default to true.
   inline static const QStringList m_defaultTrueValues = {
       Core::UseHooks
+    , Client::PhysicalKeys
     , Client::SwapCtrlCmd
     , Client::AltTabAppSwitcher
     , Client::CtrlShiftSwitchesLayout
