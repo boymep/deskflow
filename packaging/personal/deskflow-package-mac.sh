@@ -46,7 +46,7 @@ codesign --force --deep --sign - dist/Deskflow.app
 codesign --verify --deep --strict --verbose=2 dist/Deskflow.app
 # Offending absolute refs (must be 0)
 echo "offending refs: $("$REPO/packaging/personal/check-refs.sh" dist/Deskflow.app | wc -l | tr -d ' ')"
-# Zip
-ditto -c -k --keepParent dist/Deskflow.app dist/Deskflow-arm64.zip
+# Zip without AppleDouble ._ files: other unzip tools turn them into real files and break the code seal
+ditto -c -k --norsrc --noextattr --noqtn --keepParent dist/Deskflow.app dist/Deskflow-arm64.zip
 ls -l dist/Deskflow-arm64.zip; shasum -a 256 dist/Deskflow-arm64.zip
 env -u DYLD_PRINT_LIBRARIES dist/Deskflow.app/Contents/MacOS/deskflow-core --version | head -1
