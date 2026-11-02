@@ -44,6 +44,9 @@ public:
     inline static const auto LanguageSync = QStringLiteral("client/languageSync");
     inline static const auto PhysicalKeys = QStringLiteral("client/physicalKeys");
     inline static const auto SwapCtrlCmd = QStringLiteral("client/swapCtrlCmd");
+    inline static const auto AltTabAppSwitcher = QStringLiteral("client/altTabAppSwitcher");
+    inline static const auto CtrlShiftSwitchesLayout = QStringLiteral("client/ctrlShiftSwitchesLayout");
+    inline static const auto SideButtonsSwitchSpaces = QStringLiteral("client/sideButtonsSwitchSpaces");
     inline static const auto RemoteHost = QStringLiteral("client/remoteHost");
     inline static const auto XdpClipboardRetried = QStringLiteral("client/xdpClipboardRetried");
     inline static const auto XdpRestoreToken = QStringLiteral("client/xdpRestoreToken");
@@ -281,6 +284,9 @@ private:
     , Client::LanguageSync
     , Client::PhysicalKeys
     , Client::SwapCtrlCmd
+    , Client::AltTabAppSwitcher
+    , Client::CtrlShiftSwitchesLayout
+    , Client::SideButtonsSwitchSpaces
     , Client::RemoteHost
     , Client::YScrollScale
     , Client::XScrollScale
@@ -374,6 +380,9 @@ private:
   inline static const QStringList m_defaultTrueValues = {
       Core::UseHooks
     , Client::SwapCtrlCmd
+    , Client::AltTabAppSwitcher
+    , Client::CtrlShiftSwitchesLayout
+    , Client::SideButtonsSwitchSpaces
     , Gui::CloseToTray
     , Gui::CloseReminder
     , Gui::LogExpanded

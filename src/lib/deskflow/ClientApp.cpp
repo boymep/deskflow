@@ -114,9 +114,18 @@ deskflow::Computer *ClientApp::createComputer()
   deskflow::osx::WindowsKeyboardOptions windowsKeyboard;
   windowsKeyboard.enabled = Settings::value(Settings::Client::PhysicalKeys).toBool();
   windowsKeyboard.swapCtrlCmd = Settings::value(Settings::Client::SwapCtrlCmd).toBool();
+  windowsKeyboard.altTabAppSwitcher = Settings::value(Settings::Client::AltTabAppSwitcher).toBool();
+  windowsKeyboard.ctrlShiftSwitchesLayout = Settings::value(Settings::Client::CtrlShiftSwitchesLayout).toBool();
+  windowsKeyboard.sideButtonsSwitchSpaces = Settings::value(Settings::Client::SideButtonsSwitchSpaces).toBool();
   LOG_INFO(
       "windows server keyboard mode is %s%s", windowsKeyboard.enabled ? "enabled" : "disabled",
       windowsKeyboard.enabled && windowsKeyboard.swapCtrlCmd ? " (ctrl and cmd swapped)" : ""
+  );
+  LOG_INFO(
+      "alt+tab app switcher is %s, ctrl+shift input source switch is %s, mouse side buttons switch spaces is %s",
+      windowsKeyboard.altTabAppSwitcher ? "enabled" : "disabled",
+      windowsKeyboard.ctrlShiftSwitchesLayout ? "enabled" : "disabled",
+      windowsKeyboard.sideButtonsSwitchSpaces ? "enabled" : "disabled"
   );
   return new deskflow::Computer(new OSXComputer(getEvents(), false, languageSync, windowsKeyboard), getEvents());
 #else

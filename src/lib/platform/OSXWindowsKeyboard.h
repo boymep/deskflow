@@ -32,6 +32,8 @@ struct WindowsKeyboardOptions
   bool swapCtrlCmd = true; //!< remote Ctrl -> Command, Windows key -> Control
   bool altTabAppSwitcher = true;       //!< remote Alt+Tab -> Command+Tab (macOS app switcher)
   bool ctrlShiftSwitchesLayout = true; //!< remote Ctrl+Shift alone -> next Mac input source
+  //! remote mouse buttons 4/5 switch Spaces; unlike the keyboard options this works with \c enabled off
+  bool sideButtonsSwitchSpaces = true;
 };
 
 //! Windows set-1 scancode (0x100 = extended) of a remote key, masked to 9 bits.

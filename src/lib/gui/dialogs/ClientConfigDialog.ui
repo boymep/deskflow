@@ -58,6 +58,36 @@
     </widget>
    </item>
    <item>
+    <widget class="QCheckBox" name="cbAltTab">
+     <property name="toolTip">
+      <string>Server Alt+Tab opens the macOS app switcher (Command+Tab). Command stays held while Alt is held, so the switcher shortcuts (arrows, Q, H) work. Needs the Windows server keyboard.</string>
+     </property>
+     <property name="text">
+      <string>Alt+Tab switches apps</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="cbCtrlShift">
+     <property name="toolTip">
+      <string>Pressing and releasing Ctrl+Shift on the server keyboard, with no other key in between, selects the next enabled input source on this Mac. Needs the Windows server keyboard.</string>
+     </property>
+     <property name="text">
+      <string>Ctrl+Shift switches input language</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="cbSideButtons">
+     <property name="toolTip">
+      <string>Server mouse back/forward buttons switch to the Space on the left/right instead of being sent as buttons. Works without the Windows server keyboard.</string>
+     </property>
+     <property name="text">
+      <string>Mouse side buttons switch Spaces</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QGroupBox" name="groupBox">
      <property name="title">
       <string>Scroll Modifiers</string>

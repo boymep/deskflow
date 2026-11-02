@@ -45,6 +45,9 @@ void ClientConfigDialog::updateControls() const
   ui->cbLanguageSync->setEnabled(writable && !ui->cbPhysicalKeys->isChecked());
   ui->cbPhysicalKeys->setEnabled(writable);
   ui->cbSwapCtrlCmd->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
+  ui->cbAltTab->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
+  ui->cbCtrlShift->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
+  ui->cbSideButtons->setEnabled(writable);
   ui->cbXScrollInvert->setEnabled(writable);
   ui->sbXScrollScale->setEnabled(writable);
   ui->cbYScrollInvert->setEnabled(writable);
@@ -65,6 +68,9 @@ void ClientConfigDialog::initConnections() const
   connect(ui->cbPhysicalKeys, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbPhysicalKeys, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::updateControls);
   connect(ui->cbSwapCtrlCmd, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbAltTab, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbCtrlShift, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbSideButtons, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbYScrollInvert, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->sbYScrollScale, &QDoubleSpinBox::valueChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbXScrollInvert, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
@@ -79,6 +85,9 @@ bool ClientConfigDialog::isModified() const
          (ui->cbLanguageSync->isChecked() != Settings::value(Settings::Client::LanguageSync).toBool()) ||
          (ui->cbPhysicalKeys->isChecked() != Settings::value(Settings::Client::PhysicalKeys).toBool()) ||
          (ui->cbSwapCtrlCmd->isChecked() != Settings::value(Settings::Client::SwapCtrlCmd).toBool()) ||
+         (ui->cbAltTab->isChecked() != Settings::value(Settings::Client::AltTabAppSwitcher).toBool()) ||
+         (ui->cbCtrlShift->isChecked() != Settings::value(Settings::Client::CtrlShiftSwitchesLayout).toBool()) ||
+         (ui->cbSideButtons->isChecked() != Settings::value(Settings::Client::SideButtonsSwitchSpaces).toBool()) ||
          (ui->cbYScrollInvert->isChecked() != Settings::value(Settings::Client::InvertYScroll).toBool()) ||
          (ui->sbYScrollScale->value() != Settings::value(Settings::Client::YScrollScale).toDouble()) ||
          (ui->cbXScrollInvert->isChecked() != Settings::value(Settings::Client::InvertXScroll).toBool()) ||
@@ -92,6 +101,9 @@ bool ClientConfigDialog::isDefault() const
          (ui->cbLanguageSync->isChecked() == Settings::defaultValue(Settings::Client::LanguageSync).toBool()) &&
          (ui->cbPhysicalKeys->isChecked() == Settings::defaultValue(Settings::Client::PhysicalKeys).toBool()) &&
          (ui->cbSwapCtrlCmd->isChecked() == Settings::defaultValue(Settings::Client::SwapCtrlCmd).toBool()) &&
+         (ui->cbAltTab->isChecked() == Settings::defaultValue(Settings::Client::AltTabAppSwitcher).toBool()) &&
+         (ui->cbCtrlShift->isChecked() == Settings::defaultValue(Settings::Client::CtrlShiftSwitchesLayout).toBool()) &&
+         (ui->cbSideButtons->isChecked() == Settings::defaultValue(Settings::Client::SideButtonsSwitchSpaces).toBool()) &&
          (ui->cbYScrollInvert->isChecked() == Settings::defaultValue(Settings::Client::InvertYScroll).toBool()) &&
          (ui->sbYScrollScale->value() == Settings::defaultValue(Settings::Client::YScrollScale).toDouble()) &&
          (ui->cbXScrollInvert->isChecked() == Settings::defaultValue(Settings::Client::InvertXScroll).toBool()) &&
@@ -112,6 +124,9 @@ void ClientConfigDialog::load()
   ui->cbLanguageSync->setChecked(Settings::value(Settings::Client::LanguageSync).toBool());
   ui->cbPhysicalKeys->setChecked(Settings::value(Settings::Client::PhysicalKeys).toBool());
   ui->cbSwapCtrlCmd->setChecked(Settings::value(Settings::Client::SwapCtrlCmd).toBool());
+  ui->cbAltTab->setChecked(Settings::value(Settings::Client::AltTabAppSwitcher).toBool());
+  ui->cbCtrlShift->setChecked(Settings::value(Settings::Client::CtrlShiftSwitchesLayout).toBool());
+  ui->cbSideButtons->setChecked(Settings::value(Settings::Client::SideButtonsSwitchSpaces).toBool());
   ui->cbYScrollInvert->setChecked(Settings::value(Settings::Client::InvertYScroll).toBool());
   ui->sbYScrollScale->setValue(Settings::value(Settings::Client::YScrollScale).toDouble());
   ui->cbXScrollInvert->setChecked(Settings::value(Settings::Client::InvertXScroll).toBool());
@@ -124,6 +139,9 @@ void ClientConfigDialog::resetToDefault()
   ui->cbLanguageSync->setChecked(Settings::defaultValue(Settings::Client::LanguageSync).toBool());
   ui->cbPhysicalKeys->setChecked(Settings::defaultValue(Settings::Client::PhysicalKeys).toBool());
   ui->cbSwapCtrlCmd->setChecked(Settings::defaultValue(Settings::Client::SwapCtrlCmd).toBool());
+  ui->cbAltTab->setChecked(Settings::defaultValue(Settings::Client::AltTabAppSwitcher).toBool());
+  ui->cbCtrlShift->setChecked(Settings::defaultValue(Settings::Client::CtrlShiftSwitchesLayout).toBool());
+  ui->cbSideButtons->setChecked(Settings::defaultValue(Settings::Client::SideButtonsSwitchSpaces).toBool());
   ui->cbYScrollInvert->setChecked(Settings::defaultValue(Settings::Client::InvertYScroll).toBool());
   ui->sbYScrollScale->setValue(Settings::defaultValue(Settings::Client::YScrollScale).toDouble());
   ui->cbXScrollInvert->setChecked(Settings::defaultValue(Settings::Client::InvertXScroll).toBool());
@@ -136,6 +154,9 @@ void ClientConfigDialog::save()
   Settings::setValue(Settings::Client::LanguageSync, ui->cbLanguageSync->isChecked());
   Settings::setValue(Settings::Client::PhysicalKeys, ui->cbPhysicalKeys->isChecked());
   Settings::setValue(Settings::Client::SwapCtrlCmd, ui->cbSwapCtrlCmd->isChecked());
+  Settings::setValue(Settings::Client::AltTabAppSwitcher, ui->cbAltTab->isChecked());
+  Settings::setValue(Settings::Client::CtrlShiftSwitchesLayout, ui->cbCtrlShift->isChecked());
+  Settings::setValue(Settings::Client::SideButtonsSwitchSpaces, ui->cbSideButtons->isChecked());
   Settings::setValue(Settings::Client::InvertYScroll, ui->cbYScrollInvert->isChecked());
   Settings::setValue(Settings::Client::YScrollScale, ui->sbYScrollScale->value());
   Settings::setValue(Settings::Client::InvertXScroll, ui->cbXScrollInvert->isChecked());
