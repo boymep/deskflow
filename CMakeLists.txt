@@ -56,7 +56,8 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/.git)
       ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE
     )
     execute_process(
-      COMMAND ${GIT_EXECUTABLE} describe --long --match v* --always
+      # Four part tags (v1.2.3.4) are personal release tags, not version bases: see packaging/personal/release.sh
+      COMMAND ${GIT_EXECUTABLE} describe --long --match v* --exclude v*.*.*.* --always
       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
       OUTPUT_VARIABLE GITREV
       ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE
