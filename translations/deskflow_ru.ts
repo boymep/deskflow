@@ -173,6 +173,46 @@ p, li { white-space: pre-wrap; }
         <source>Use dynamic reconnection time based on connection attempts</source>
         <translation type="unfinished">Использовать динамическое время переподключения в зависимости от попыток подключения</translation>
     </message>
+    <message>
+        <source>macOS client with a Windows server only. Keys from the server keyboard keep their physical position and type the Windows characters of this Mac&apos;s current input language. Windows editing keys (Ctrl+Backspace, Ctrl+Delete, Ctrl+Arrows, Home, End, Ctrl+Y) get their macOS equivalents. This Mac&apos;s own keyboard is not affected. Language sync has no effect in this mode.</source>
+        <translation>Только для клиента macOS с сервером Windows. Клавиши клавиатуры сервера сохраняют своё физическое расположение и вводят символы Windows для текущего языка ввода этого Mac. Клавиши редактирования Windows (Ctrl+Backspace, Ctrl+Delete, Ctrl+стрелки, Home, End, Ctrl+Y) заменяются аналогами macOS. Собственная клавиатура этого Mac не затрагивается. В этом режиме синхронизация языка не действует.</translation>
+    </message>
+    <message>
+        <source>Windows server keyboard (physical keys)</source>
+        <translation>Клавиатура сервера Windows (физические клавиши)</translation>
+    </message>
+    <message>
+        <source>Server Ctrl acts as Command and the Windows key as Control. Ctrl+Tab stays Control+Tab.</source>
+        <translation>Ctrl сервера работает как Command, а клавиша Windows — как Control. Ctrl+Tab остаётся Control+Tab.</translation>
+    </message>
+    <message>
+        <source>Swap Ctrl and Cmd</source>
+        <translation>Поменять местами Ctrl и Cmd</translation>
+    </message>
+    <message>
+        <source>Server Alt+Tab opens the macOS app switcher (Command+Tab). Command stays held while Alt is held, so the switcher shortcuts (arrows, Q, H) work. Needs the Windows server keyboard.</source>
+        <translation>Alt+Tab на сервере открывает переключатель приложений macOS (Command+Tab). Command остаётся нажатой, пока удерживается Alt, поэтому работают клавиши переключателя (стрелки, Q, H). Требуется клавиатура сервера Windows.</translation>
+    </message>
+    <message>
+        <source>Alt+Tab switches apps</source>
+        <translation>Alt+Tab переключает приложения</translation>
+    </message>
+    <message>
+        <source>Pressing and releasing Ctrl+Shift on the server keyboard, with no other key in between, selects the next enabled input source on this Mac. Needs the Windows server keyboard.</source>
+        <translation>Нажатие и отпускание Ctrl+Shift на клавиатуре сервера без других клавиш между ними выбирает следующий включённый источник ввода на этом Mac. Требуется клавиатура сервера Windows.</translation>
+    </message>
+    <message>
+        <source>Ctrl+Shift switches input language</source>
+        <translation>Ctrl+Shift переключает язык ввода</translation>
+    </message>
+    <message>
+        <source>Server mouse back/forward buttons switch to the Space on the left/right instead of being sent as buttons. Works without the Windows server keyboard.</source>
+        <translation>Кнопки мыши сервера «назад» и «вперёд» переключают на рабочий стол (Space) слева и справа, а не передаются как кнопки. Работает и без клавиатуры сервера Windows.</translation>
+    </message>
+    <message>
+        <source>Mouse side buttons switch Spaces</source>
+        <translation>Боковые кнопки мыши переключают рабочие столы</translation>
+    </message>
 </context>
 <context>
     <name>ComputerSettingsDialog</name>
@@ -1226,6 +1266,26 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Подробный вывод отладки</translation>
     </message>
     <message>
+        <source>Only available on macOS and Windows</source>
+        <translation>Доступно только в macOS и Windows</translation>
+    </message>
+    <message>
+        <source>Saved in the %1</source>
+        <translation>Сохранён в %1</translation>
+    </message>
+    <message>
+        <source>Paste a token to check for updates</source>
+        <translation>Вставьте токен для проверки обновлений</translation>
+    </message>
+    <message>
+        <source>The GitHub token contains spaces or unsupported characters.</source>
+        <translation>Токен GitHub содержит пробелы или неподдерживаемые символы.</translation>
+    </message>
+    <message>
+        <source>Could not save the GitHub token to the %1.</source>
+        <translation>Не удалось сохранить токен GitHub в %1.</translation>
+    </message>
+    <message>
         <source>Automatic</source>
         <translation>Автоматически</translation>
     </message>
@@ -1288,6 +1348,22 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Remove all settings</source>
         <translation type="unfinished">Удалить все настройки</translation>
+    </message>
+    <message>
+        <source>GitHub token</source>
+        <translation>Токен GitHub</translation>
+    </message>
+    <message>
+        <source>A fine-grained GitHub token with read-only Contents access to the release repository. It is stored in the macOS Keychain.</source>
+        <translation>Детализированный токен GitHub с доступом «только чтение» к Contents репозитория релизов. Хранится в связке ключей macOS.</translation>
+    </message>
+    <message>
+        <source>Forget</source>
+        <translation>Забыть</translation>
+    </message>
+    <message>
+        <source>Check for updates now</source>
+        <translation>Проверить обновления сейчас</translation>
     </message>
 </context>
 <context>
@@ -1389,6 +1465,194 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Encryption Disabled</source>
         <translation>Шифрование отключено</translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::updates::GitHubUpdater</name>
+    <message>
+        <source>The download was cancelled.</source>
+        <translation>Загрузка отменена.</translation>
+    </message>
+    <message>
+        <source>The server sent more data than expected.</source>
+        <translation>Сервер прислал больше данных, чем ожидалось.</translation>
+    </message>
+    <message>
+        <source>Could not write the download to %1.</source>
+        <translation>Не удалось записать загрузку в %1.</translation>
+    </message>
+    <message>
+        <source>GitHub answered with an unexpected redirect.</source>
+        <translation>GitHub ответил неожиданным перенаправлением.</translation>
+    </message>
+    <message>
+        <source>Too many redirects while downloading the update.</source>
+        <translation>Слишком много перенаправлений при загрузке обновления.</translation>
+    </message>
+    <message>
+        <source>The download was redirected to an unexpected address.</source>
+        <translation>Загрузка была перенаправлена на неожиданный адрес.</translation>
+    </message>
+    <message>
+        <source>The release information from GitHub is not valid: %1</source>
+        <translation>Сведения о релизе от GitHub некорректны: %1</translation>
+    </message>
+    <message>
+        <source>The checksum file of the release is not valid.</source>
+        <translation>Файл контрольных сумм релиза некорректен.</translation>
+    </message>
+    <message>
+        <source>Could not find the Downloads folder.</source>
+        <translation>Не удалось найти папку «Загрузки».</translation>
+    </message>
+    <message>
+        <source>Could not choose a file name in the Downloads folder.</source>
+        <translation>Не удалось подобрать имя файла в папке «Загрузки».</translation>
+    </message>
+    <message>
+        <source>Could not create %1.</source>
+        <translation>Не удалось создать %1.</translation>
+    </message>
+    <message>
+        <source>The downloaded file does not match its checksum and was deleted.</source>
+        <translation>Загруженный файл не совпадает с контрольной суммой и был удалён.</translation>
+    </message>
+    <message>
+        <source>Could not save %1.</source>
+        <translation>Не удалось сохранить %1.</translation>
+    </message>
+    <message>
+        <source>Could not create a folder for the update in %1.</source>
+        <translation>Не удалось создать папку для обновления в %1.</translation>
+    </message>
+    <message>
+        <source>Could not unpack the update. The verified zip is at %1.</source>
+        <translation>Не удалось распаковать обновление. Проверенный zip-архив лежит в %1.</translation>
+    </message>
+    <message>
+        <source>The update does not contain %1 as expected. Nothing was installed.</source>
+        <translation>В обновлении нет %1, как ожидалось. Ничего не установлено.</translation>
+    </message>
+    <message>
+        <source>GitHub rejected the token (HTTP %1). Check that it is valid and can read %2/%3.</source>
+        <translation>GitHub отклонил токен (HTTP %1). Проверьте, что он действителен и может читать %2/%3.</translation>
+    </message>
+    <message>
+        <source>No release was found (HTTP 404). Either nothing is published yet or the token cannot see %1/%2.</source>
+        <translation>Релиз не найден (HTTP 404). Либо ничего ещё не опубликовано, либо токен не видит %1/%2.</translation>
+    </message>
+    <message>
+        <source>GitHub answered with HTTP %1.</source>
+        <translation>GitHub ответил кодом HTTP %1.</translation>
+    </message>
+    <message>
+        <source>The connection timed out.</source>
+        <translation>Время ожидания соединения истекло.</translation>
+    </message>
+    <message>
+        <source>Could not reach GitHub. Check the Internet connection.</source>
+        <translation>Не удалось связаться с GitHub. Проверьте подключение к интернету.</translation>
+    </message>
+    <message>
+        <source>A secure connection to GitHub could not be established.</source>
+        <translation>Не удалось установить защищённое соединение с GitHub.</translation>
+    </message>
+    <message>
+        <source>A network error occurred while talking to GitHub.</source>
+        <translation>Сетевая ошибка при обращении к GitHub.</translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::updates::UpdateFlow</name>
+    <message>
+        <source>Updates</source>
+        <translation>Обновления</translation>
+    </message>
+    <message>
+        <source>An update check or download is already running.</source>
+        <translation>Проверка или загрузка обновления уже выполняется.</translation>
+    </message>
+    <message>
+        <source>Update available</source>
+        <translation>Доступно обновление</translation>
+    </message>
+    <message>
+        <source>%1 %2 is available. You have %3.</source>
+        <translation>Доступна версия %1 %2. У вас %3.</translation>
+    </message>
+    <message>
+        <source>Download it to your Downloads folder? You install it yourself after the download.</source>
+        <translation>Скачать в папку «Загрузки»? После загрузки вы устанавливаете обновление сами.</translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation>Скачать</translation>
+    </message>
+    <message>
+        <source>Later</source>
+        <translation>Позже</translation>
+    </message>
+    <message>
+        <source>Downloading %1 %2...</source>
+        <translation>Загрузка %1 %2...</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Update</source>
+        <translation>Обновление</translation>
+    </message>
+    <message>
+        <source>Checking for updates is only available on macOS and Windows.</source>
+        <translation>Проверка обновлений доступна только в macOS и Windows.</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;To check for updates, add a GitHub token in Settings.&lt;/p&gt;&lt;p&gt;Create a fine-grained token with read-only &lt;b&gt;Contents&lt;/b&gt; access to the %1/%2 repository. It is stored in the %3.&lt;/p&gt;</source>
+        <translation>&lt;p&gt;Чтобы проверять обновления, добавьте токен GitHub в настройках.&lt;/p&gt;&lt;p&gt;Создайте детализированный токен с доступом «только чтение» к &lt;b&gt;Contents&lt;/b&gt; репозитория %1/%2. Он хранится в %3.&lt;/p&gt;</translation>
+    </message>
+    <message>
+        <source>Could not check for updates.
+
+%1</source>
+        <translation>Не удалось проверить обновления.
+
+%1</translation>
+    </message>
+    <message>
+        <source>You have the latest version.
+
+Installed: %1
+Latest release: %2</source>
+        <translation>У вас последняя версия.
+
+Установлена: %1
+Последний релиз: %2</translation>
+    </message>
+    <message>
+        <source>Unpacking...</source>
+        <translation>Распаковка...</translation>
+    </message>
+    <message>
+        <source>Update downloaded</source>
+        <translation>Обновление загружено</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;The new version is ready in &lt;b&gt;%1&lt;/b&gt; and is shown in Explorer.&lt;/p&gt;&lt;p&gt;To install it:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Quit %2.&lt;/li&gt;&lt;li&gt;Run &lt;b&gt;%3&lt;/b&gt; and follow the installer.&lt;/li&gt;&lt;li&gt;Start %2 again.&lt;/li&gt;&lt;/ol&gt;</source>
+        <translation>&lt;p&gt;Новая версия готова в &lt;b&gt;%1&lt;/b&gt; и показана в Проводнике.&lt;/p&gt;&lt;p&gt;Чтобы установить её:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Закройте %2.&lt;/li&gt;&lt;li&gt;Запустите &lt;b&gt;%3&lt;/b&gt; и следуйте указаниям установщика.&lt;/li&gt;&lt;li&gt;Снова запустите %2.&lt;/li&gt;&lt;/ol&gt;</translation>
+    </message>
+    <message>
+        <source>&lt;p&gt;The new version is ready in &lt;b&gt;%1&lt;/b&gt; and is shown in Finder.&lt;/p&gt;&lt;p&gt;To install it:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Quit %2.&lt;/li&gt;&lt;li&gt;Drag %3 from the Finder window to the Applications folder.&lt;/li&gt;&lt;li&gt;Choose &lt;b&gt;Replace&lt;/b&gt; when asked.&lt;/li&gt;&lt;li&gt;Open %2 from Applications.&lt;/li&gt;&lt;/ol&gt;</source>
+        <translation>&lt;p&gt;Новая версия готова в &lt;b&gt;%1&lt;/b&gt; и показана в Finder.&lt;/p&gt;&lt;p&gt;Чтобы установить её:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Закройте %2.&lt;/li&gt;&lt;li&gt;Перетащите %3 из окна Finder в папку «Программы».&lt;/li&gt;&lt;li&gt;Когда спросят, выберите &lt;b&gt;Заменить&lt;/b&gt;.&lt;/li&gt;&lt;li&gt;Откройте %2 из папки «Программы».&lt;/li&gt;&lt;/ol&gt;</translation>
+    </message>
+    <message>
+        <source>The update could not be downloaded.
+
+%1</source>
+        <translation>Не удалось загрузить обновление.
+
+%1</translation>
     </message>
 </context>
 <context>
