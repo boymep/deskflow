@@ -161,6 +161,10 @@ private:
   // Windows server keyboard mode: post the events produced by the mapper.
   void postWindowsKeyboardActions(const deskflow::osx::KeyActions &actions);
 
+  // Windows server keyboard mode: select the next enabled keyboard input source
+  // (Ctrl+Shift chord).
+  void selectNextInputSource();
+
   // Windows server keyboard mode: post a typing key carrying the Windows
   // character of the current input language. Returns false if no character.
   bool postWindowsTextKey(const deskflow::osx::KeyAction &action);

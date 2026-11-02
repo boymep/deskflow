@@ -138,6 +138,7 @@ private:
 
   // map deskflow mouse button to mac buttons
   ButtonID mapDeskflowButtonToMac(uint16_t) const;
+  void switchSpace(bool right);
 
   // map mac mouse button to deskflow buttons
   ButtonID mapMacButtonToDeskflow(uint16_t) const;
@@ -224,6 +225,7 @@ private:
 
   // true if screen is being used as a primary screen, false otherwise
   bool m_isPrimary;
+  bool m_sideButtonsSwitchSpaces = false;
 
   // true if mouse has entered the screen
   bool m_isOnComputer;

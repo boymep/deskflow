@@ -125,6 +125,7 @@ OSXComputer::OSXComputer(
   try {
     m_screensaver = new OSXScreenSaver(m_events, getEventTarget());
     m_keyState = new OSXKeyState(m_events, AppUtil::instance().getKeyboardLayoutList(), enableLangSync);
+    m_sideButtonsSwitchSpaces = !m_isPrimary && windowsKeyboard.sideButtonsSwitchSpaces;
     if (!m_isPrimary && windowsKeyboard.enabled) {
       m_keyState->enableWindowsKeyboard(windowsKeyboard);
     }
@@ -506,8 +507,34 @@ void OSXComputer::postMouseEvent(CGPoint &pos) const
   CFRelease(event);
 }
 
+void OSXComputer::switchSpace(bool right)
+{
+  // macOS ignores a synthetic Control+Arrow for Spaces unless the fn flag is set as well.
+  // The events carry explicit flags, so the keyboard modifier state stays untouched.
+  const CGKeyCode key = right ? kVK_RightArrow : kVK_LeftArrow;
+  const CGEventFlags flags = kCGEventFlagMaskControl | kCGEventFlagMaskSecondaryFn;
+  for (const bool down : {true, false}) {
+    CGEventRef event = CGEventCreateKeyboardEvent(nullptr, key, down);
+    if (event == nullptr) {
+      LOG_WARN("unable to create event to switch space");
+      return;
+    }
+    CGEventSetFlags(event, flags);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+  }
+}
+
 void OSXComputer::fakeMouseButton(ButtonID id, bool press)
 {
+  // back (4) / forward (5) switch Spaces instead of being posted; swallow the release too
+  if (m_sideButtonsSwitchSpaces && (id == kButtonExtra0 || id == kButtonExtra1)) {
+    if (press) {
+      switchSpace(id == kButtonExtra1);
+    }
+    return;
+  }
+
   // Buttons are indexed from one, but the button down array is indexed from zero
   uint32_t index = mapDeskflowButtonToMac(id) - kButtonLeft;
   if (index >= NumButtonIDs) {

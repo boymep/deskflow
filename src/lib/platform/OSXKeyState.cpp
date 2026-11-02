@@ -1046,10 +1046,14 @@ std::string toStdString(CFStringRef string)
 
 void OSXKeyState::enableWindowsKeyboard(const deskflow::osx::WindowsKeyboardOptions &options)
 {
-  m_windowsKeyboard = std::make_unique<deskflow::osx::WindowsKeyboardMapper>(options.swapCtrlCmd);
+  m_windowsKeyboard = std::make_unique<deskflow::osx::WindowsKeyboardMapper>(
+      options.swapCtrlCmd, options.altTabAppSwitcher, options.ctrlShiftSwitchesLayout
+  );
   LOG_INFO(
-      "windows server keyboard: physical keys, windows characters, ctrl/cmd %s",
-      options.swapCtrlCmd ? "swapped" : "unchanged"
+      "windows server keyboard: physical keys, windows characters, ctrl/cmd %s, alt+tab app switcher %s, "
+      "ctrl+shift input source switch %s",
+      options.swapCtrlCmd ? "swapped" : "unchanged", options.altTabAppSwitcher ? "on" : "off",
+      options.ctrlShiftSwitchesLayout ? "on" : "off"
   );
 }
 
@@ -1115,6 +1119,10 @@ void OSXKeyState::fakeAllKeysUp()
 void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &actions)
 {
   for (const auto &action : actions) {
+    if (action.switchInputSource) {
+      selectNextInputSource();
+      continue;
+    }
     if (action.text && postWindowsTextKey(action)) {
       continue;
     }
@@ -1122,6 +1130,50 @@ void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &ac
     for (int32_t i = 0; i < count; ++i) {
       postVirtualKey(static_cast<CGKeyCode>(action.virtualKey), action.down);
     }
+  }
+}
+
+void OSXKeyState::selectNextInputSource()
+{
+  // enabled keyboard layouts and input modes the user can switch to, in system order
+  const void *keys[] = {kTISPropertyInputSourceCategory, kTISPropertyInputSourceIsSelectCapable};
+  const void *values[] = {kTISCategoryKeyboardInputSource, kCFBooleanTrue};
+  AutoCFDictionary filter(
+      CFDictionaryCreate(nullptr, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks),
+      CFRelease
+  );
+  if (!filter) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(g_tisMutex);
+  AutoCFArray sources(TISCreateInputSourceList(filter.get(), false), CFRelease);
+  AutoTISInputSourceRef current(TISCopyCurrentKeyboardInputSource(), CFRelease);
+  // bounded: a Mac has a handful of input sources
+  constexpr CFIndex kMaxSources = 64;
+  const CFIndex count = sources ? std::min(CFArrayGetCount(sources.get()), kMaxSources) : 0;
+  if (count < 2 || !current) {
+    LOG_DEBUG("input source switch: nothing to switch to");
+    return;
+  }
+
+  CFIndex currentIndex = -1;
+  const auto currentId = static_cast<CFStringRef>(TISGetInputSourceProperty(current.get(), kTISPropertyInputSourceID));
+  for (CFIndex i = 0; i < count && currentId != nullptr; ++i) {
+    auto source = static_cast<TISInputSourceRef>(const_cast<void *>(CFArrayGetValueAtIndex(sources.get(), i)));
+    const auto id = static_cast<CFStringRef>(TISGetInputSourceProperty(source, kTISPropertyInputSourceID));
+    if (id != nullptr && CFEqual(id, currentId)) {
+      currentIndex = i;
+      break;
+    }
+  }
+
+  const CFIndex next = (currentIndex + 1) % count;
+  auto target = static_cast<TISInputSourceRef>(const_cast<void *>(CFArrayGetValueAtIndex(sources.get(), next)));
+  if (TISSelectInputSource(target) != noErr) {
+    LOG_WARN("failed to switch input source");
+  } else {
+    LOG_DEBUG("input source switched (%d of %d)", static_cast<int>(next), static_cast<int>(count));
   }
 }
 
