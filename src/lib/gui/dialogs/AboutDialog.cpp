@@ -14,6 +14,7 @@
 #include "common/VersionInfo.h"
 
 #include <QClipboard>
+#include <QCoreApplication>
 
 AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent), ui{std::make_unique<Ui::AboutDialog>()}
 {
@@ -30,7 +31,9 @@ AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent), ui{std::make_unique
   connect(ui->btnCopyVersion, &QPushButton::clicked, this, &AboutDialog::copyVersionText);
 
   ui->lblVersion->setText(kDisplayVersion);
-  ui->lblDescription->setText(kAppDescription);
+  // lupdate marker; the text must match CMAKE_PROJECT_DESCRIPTION
+  QT_TRANSLATE_NOOP("AboutDialog", "Keyboard and mouse sharing utility");
+  ui->lblDescription->setText(QCoreApplication::translate("AboutDialog", kAppDescription));
   ui->lblCopyright->setText(kCopyright);
 
   // Use non-breaking space in each awesome dev name so names are not split across lines.
