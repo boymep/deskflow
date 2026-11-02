@@ -20,8 +20,8 @@ const auto kRepoOwner = QStringLiteral("boymep");
 const auto kRepoName = QStringLiteral("deskflow");
 const auto kUrlLatestRelease =
     QStringLiteral("https://api.github.com/repos/%1/%2/releases/latest").arg(kRepoOwner, kRepoName);
-const auto kZipAssetName = QStringLiteral("Deskflow-arm64.zip");
-const auto kShaAssetName = QStringLiteral("Deskflow-arm64.zip.sha256");
+const auto kMacAssetName = QStringLiteral("Deskflow-arm64.zip");
+const auto kWindowsAssetName = QStringLiteral("Deskflow-x64.msi");
 const auto kAppBundleName = QStringLiteral("Deskflow.app");
 
 // Size limits for everything read from the network.
@@ -30,6 +30,13 @@ constexpr qint64 kMaxShaFileSize = 1024;
 constexpr qint64 kMaxZipSize = 300LL * 1024 * 1024;
 constexpr int kMaxTokenLength = 255;
 constexpr int kMaxRedirects = 5;
+
+/**
+ * @brief Name of the release asset for this platform: the zip on macOS, the MSI on Windows.
+ * The checksum asset is the same name plus ".sha256".
+ */
+QString platformAssetName();
+QString shaAssetName(const QString &assetName);
 
 /**
  * @brief Parses a four part numeric version, e.g. "1.27.0.27" or "v1.27.0.27".
@@ -67,8 +74,11 @@ struct ReleaseInfo
 /**
  * @brief Parses the JSON from the GitHub "latest release" API.
  * @param error is set to a short description when parsing fails.
+ * @param assetName the asset to look for, plus its ".sha256" file. Defaults to the platform asset.
  */
-std::optional<ReleaseInfo> parseRelease(const QByteArray &json, QString *error = nullptr);
+std::optional<ReleaseInfo> parseRelease(
+    const QByteArray &json, QString *error = nullptr, const QString &assetName = platformAssetName()
+);
 
 /**
  * @brief Checks that an asset API url points at an asset of our repository on api.github.com.

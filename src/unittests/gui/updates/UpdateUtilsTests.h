@@ -14,6 +14,7 @@ private Q_SLOTS:
   void compareVersions();
   void parseSha256File();
   void parseRelease_valid();
+  void parseRelease_platformAsset();
   void parseRelease_invalid();
   void assetUrl();
   void redirectUrl();

@@ -102,7 +102,21 @@ std::optional<QByteArray> parseSha256File(const QByteArray &content, const QStri
   return match.captured(1).toLower().toLatin1();
 }
 
-std::optional<ReleaseInfo> parseRelease(const QByteArray &json, QString *error)
+QString platformAssetName()
+{
+#if defined(Q_OS_WIN)
+  return kWindowsAssetName;
+#else
+  return kMacAssetName;
+#endif
+}
+
+QString shaAssetName(const QString &assetName)
+{
+  return assetName + QStringLiteral(".sha256");
+}
+
+std::optional<ReleaseInfo> parseRelease(const QByteArray &json, QString *error, const QString &assetName)
 {
   if (json.size() > kMaxJsonSize) {
     setError(error, QStringLiteral("release data is too large"));
@@ -137,6 +151,7 @@ std::optional<ReleaseInfo> parseRelease(const QByteArray &json, QString *error)
   info.tag = tag.toString();
   info.version = info.tag.mid(info.tag.startsWith(QLatin1Char('v')) ? 1 : 0);
 
+  const auto shaName = shaAssetName(assetName);
   bool hasZip = false;
   bool hasSha = false;
   for (const auto &value : assets.toArray()) {
@@ -144,13 +159,13 @@ std::optional<ReleaseInfo> parseRelease(const QByteArray &json, QString *error)
       continue;
     const auto asset = value.toObject();
     const auto name = asset.value(QStringLiteral("name")).toString();
-    if (name == kZipAssetName && !hasZip) {
+    if (name == assetName && !hasZip) {
       const auto parsed = parseAsset(asset, kMaxZipSize, error);
       if (!parsed)
         return std::nullopt;
       info.zip = *parsed;
       hasZip = true;
-    } else if (name == kShaAssetName && !hasSha) {
+    } else if (name == shaName && !hasSha) {
       const auto parsed = parseAsset(asset, kMaxShaFileSize, error);
       if (!parsed)
         return std::nullopt;
@@ -160,7 +175,7 @@ std::optional<ReleaseInfo> parseRelease(const QByteArray &json, QString *error)
   }
 
   if (!hasZip || !hasSha) {
-    setError(error, QStringLiteral("release is missing %1 or %2").arg(kZipAssetName, kShaAssetName));
+    setError(error, QStringLiteral("release is missing %1 or %2").arg(assetName, shaName));
     return std::nullopt;
   }
   return info;

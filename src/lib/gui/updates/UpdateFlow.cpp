@@ -12,6 +12,7 @@
 #include "common/VersionInfo.h"
 
 #include <QApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QProgressDialog>
@@ -97,7 +98,7 @@ void UpdateFlow::handleNoToken()
     return;
 
   if (!UpdateTokenStore::isSupported()) {
-    QMessageBox::information(dialogParent(), tr("Updates"), tr("Checking for updates is only available on macOS."));
+    QMessageBox::information(dialogParent(), tr("Updates"), tr("Checking for updates is only available on macOS and Windows."));
     return;
   }
 
@@ -105,8 +106,8 @@ void UpdateFlow::handleNoToken()
       dialogParent(), tr("Updates"),
       tr("<p>To check for updates, add a GitHub token in Settings.</p>"
          "<p>Create a fine-grained token with read-only <b>Contents</b> access to the %1/%2 repository. "
-         "It is stored in the macOS Keychain.</p>")
-          .arg(kRepoOwner, kRepoName)
+         "It is stored in the %3.</p>")
+          .arg(kRepoOwner, kRepoName, UpdateTokenStore::storeName())
   );
 }
 
@@ -156,6 +157,19 @@ void UpdateFlow::handleDownloadFinished(const QString &appPath)
 {
   closeProgress();
   const QFileInfo info(appPath);
+#if defined(Q_OS_WIN)
+  QMessageBox::information(
+      dialogParent(), tr("Update downloaded"),
+      tr("<p>The new version is ready in <b>%1</b> and is shown in Explorer.</p>"
+         "<p>To install it:</p>"
+         "<ol><li>Quit %2.</li>"
+         "<li>Run <b>%3</b> and follow the installer.</li>"
+         "<li>Start %2 again.</li></ol>")
+          .arg(
+              QDir::toNativeSeparators(info.absolutePath()).toHtmlEscaped(), kAppName, info.fileName().toHtmlEscaped()
+          )
+  );
+#else
   QMessageBox::information(
       dialogParent(), tr("Update downloaded"),
       tr("<p>The new version is ready in <b>%1</b> and is shown in Finder.</p>"
@@ -166,6 +180,7 @@ void UpdateFlow::handleDownloadFinished(const QString &appPath)
          "<li>Open %2 from Applications.</li></ol>")
           .arg(info.absolutePath().toHtmlEscaped(), kAppName, info.fileName().toHtmlEscaped())
   );
+#endif
 }
 
 void UpdateFlow::handleDownloadFailed(const QString &message)

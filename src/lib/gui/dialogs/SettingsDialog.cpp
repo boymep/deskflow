@@ -328,9 +328,9 @@ void SettingsDialog::updateTokenControls()
   ui->btnCheckUpdates->setEnabled(supported);
 
   if (!supported)
-    ui->lineUpdateToken->setPlaceholderText(tr("Only available on macOS"));
+    ui->lineUpdateToken->setPlaceholderText(tr("Only available on macOS and Windows"));
   else if (hasToken)
-    ui->lineUpdateToken->setPlaceholderText(tr("Saved in the Keychain"));
+    ui->lineUpdateToken->setPlaceholderText(tr("Saved in the %1").arg(UpdateTokenStore::storeName()));
   else
     ui->lineUpdateToken->setPlaceholderText(tr("Paste a token to check for updates"));
 }
@@ -348,7 +348,10 @@ bool SettingsDialog::saveUpdateToken()
   }
 
   if (!UpdateTokenStore::saveToken(token)) {
-    QMessageBox::warning(this, tr("GitHub token"), tr("Could not save the GitHub token to the Keychain."));
+    QMessageBox::warning(
+        this, tr("GitHub token"),
+        tr("Could not save the GitHub token to the %1.").arg(UpdateTokenStore::storeName())
+    );
     return false;
   }
 

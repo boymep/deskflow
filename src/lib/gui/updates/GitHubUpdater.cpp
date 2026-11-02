@@ -26,6 +26,11 @@ namespace {
 constexpr int kTransferTimeoutMs = 30 * 1000;
 constexpr int kUnpackTimeoutMs = 5 * 60 * 1000;
 constexpr int kMaxUniqueNames = 100;
+#if defined(Q_OS_WIN)
+const auto kFileSuffix = QStringLiteral(".msi");
+#else
+const auto kFileSuffix = QStringLiteral(".zip");
+#endif
 const auto kAcceptJson = QByteArrayLiteral("application/vnd.github+json");
 const auto kAcceptBinary = QByteArrayLiteral("application/octet-stream");
 
@@ -306,7 +311,7 @@ void GitHubUpdater::handleBody()
   }
 
   if (m_phase == Phase::FetchingSha) {
-    const auto sha = parseSha256File(m_buffer, kZipAssetName);
+    const auto sha = parseSha256File(m_buffer, platformAssetName());
     m_buffer.clear();
     if (!sha) {
       fail(tr("The checksum file of the release is not valid."));
@@ -330,8 +335,8 @@ void GitHubUpdater::startZipDownload()
   }
 
   const auto base = QDir(downloads).filePath(QStringLiteral("Deskflow-%1").arg(m_release->version));
-  m_zipPath = uniquePath(base, QStringLiteral(".zip"));
-  const auto partPath = uniquePath(base, QStringLiteral(".zip.download"));
+  m_zipPath = uniquePath(base, kFileSuffix);
+  const auto partPath = uniquePath(base, kFileSuffix + QStringLiteral(".download"));
   if (m_zipPath.isEmpty() || partPath.isEmpty()) {
     fail(tr("Could not choose a file name in the Downloads folder."));
     return;
@@ -405,6 +410,14 @@ void GitHubUpdater::unpack(const QString &zipPath)
   const QStringList arguments = {QStringLiteral("-x"), QStringLiteral("-k"), zipPath, m_unpackDir};
   m_process->start(QStringLiteral("/usr/bin/ditto"), arguments);
 #else
+#if defined(Q_OS_WIN)
+  // Nothing to unpack. Show the verified installer in Explorer; the user runs it.
+  // Absolute path from SystemRoot and an argument list, no shell.
+  const auto systemRoot = qEnvironmentVariable("SystemRoot", QStringLiteral("C:\\Windows"));
+  const auto explorer = QDir::toNativeSeparators(QDir(systemRoot).filePath(QStringLiteral("explorer.exe")));
+  const auto native = QDir::toNativeSeparators(QFileInfo(zipPath).absoluteFilePath());
+  QProcess::startDetached(explorer, {QStringLiteral("/select,") + native});
+#endif
   m_phase = Phase::Idle;
   Q_EMIT downloadFinished(zipPath);
 #endif

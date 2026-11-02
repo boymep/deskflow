@@ -11,6 +11,9 @@
 #if defined(Q_OS_MACOS)
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+#elif defined(Q_OS_WIN)
+#include <windows.h>
+#include <wincred.h>
 #endif
 
 namespace deskflow::gui::updates {
@@ -66,6 +69,11 @@ CFMutableDictionaryRef baseQuery()
 bool UpdateTokenStore::isSupported()
 {
   return true;
+}
+
+QString UpdateTokenStore::storeName()
+{
+  return QStringLiteral("macOS Keychain");
 }
 
 bool UpdateTokenStore::hasToken()
@@ -140,11 +148,90 @@ bool UpdateTokenStore::removeToken()
   return true;
 }
 
+#elif defined(Q_OS_WIN)
+
+bool UpdateTokenStore::isSupported()
+{
+  return true;
+}
+
+QString UpdateTokenStore::storeName()
+{
+  return QStringLiteral("Windows Credential Manager");
+}
+
+bool UpdateTokenStore::hasToken()
+{
+  return !readToken().isEmpty();
+}
+
+QString UpdateTokenStore::readToken()
+{
+  PCREDENTIALW credential = nullptr;
+  if (!CredReadW(reinterpret_cast<LPCWSTR>(kTarget.utf16()), CRED_TYPE_GENERIC, 0, &credential)) {
+    const auto error = GetLastError();
+    if (error != ERROR_NOT_FOUND)
+      qWarning("could not read the update token from the credential manager, error: %lu", error);
+    return {};
+  }
+
+  QString token;
+  const auto size = credential->CredentialBlobSize;
+  if (credential->CredentialBlob && size > 0 && size <= 4096)
+    token = QString::fromUtf8(reinterpret_cast<const char *>(credential->CredentialBlob), static_cast<qsizetype>(size));
+  CredFree(credential);
+  return token;
+}
+
+bool UpdateTokenStore::saveToken(const QString &token)
+{
+  auto bytes = token.toUtf8();
+  auto target = kTarget;
+  auto userName = kAccount;
+  auto comment = QStringLiteral("Deskflow update token");
+
+  CREDENTIALW credential = {};
+  credential.Type = CRED_TYPE_GENERIC;
+  credential.TargetName = reinterpret_cast<LPWSTR>(target.data());
+  credential.Comment = reinterpret_cast<LPWSTR>(comment.data());
+  credential.CredentialBlobSize = static_cast<DWORD>(bytes.size());
+  credential.CredentialBlob = reinterpret_cast<LPBYTE>(bytes.data());
+  credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
+  credential.UserName = reinterpret_cast<LPWSTR>(userName.data());
+
+  const bool ok = CredWriteW(&credential, 0) != FALSE;
+  const auto error = ok ? 0 : GetLastError();
+  // do not leave a copy of the token in memory longer than needed
+  bytes.fill('\0');
+  if (!ok) {
+    qWarning("could not save the update token to the credential manager, error: %lu", error);
+    return false;
+  }
+  return true;
+}
+
+bool UpdateTokenStore::removeToken()
+{
+  if (!CredDeleteW(reinterpret_cast<LPCWSTR>(kTarget.utf16()), CRED_TYPE_GENERIC, 0)) {
+    const auto error = GetLastError();
+    if (error != ERROR_NOT_FOUND) {
+      qWarning("could not remove the update token from the credential manager, error: %lu", error);
+      return false;
+    }
+  }
+  return true;
+}
+
 #else
 
 bool UpdateTokenStore::isSupported()
 {
   return false;
+}
+
+QString UpdateTokenStore::storeName()
+{
+  return {};
 }
 
 bool UpdateTokenStore::hasToken()

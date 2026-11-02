@@ -22,11 +22,15 @@ QByteArray releaseJson(
     qint64 zipSize = 50000000, const QString &extra = {}
 )
 {
+  // a release with the assets of both platforms, as published by release.sh and the Windows workflow
   return QStringLiteral(R"({"tag_name":"%1","draft":false,"prerelease":false,%4"assets":[)"
                         R"({"name":"other.txt","url":"https://example.com/x","size":1},)"
                         R"({"name":"Deskflow-arm64.zip","url":"%2","size":%3,"state":"uploaded"},)"
-                        R"({"name":"Deskflow-arm64.zip.sha256","url":"%5","size":85,"state":"uploaded"}]})")
+                        R"({"name":"Deskflow-arm64.zip.sha256","url":"%5","size":85,"state":"uploaded"},)"
+                        R"({"name":"Deskflow-x64.msi","url":"%6","size":%3,"state":"uploaded"},)"
+                        R"({"name":"Deskflow-x64.msi.sha256","url":"%7","size":83,"state":"uploaded"}]})")
       .arg(tag, zipUrl, QString::number(zipSize), extra, kAssetBase + QStringLiteral("12"))
+      .arg(kAssetBase + QStringLiteral("21"), kAssetBase + QStringLiteral("22"))
       .toUtf8();
 }
 
@@ -82,6 +86,39 @@ void UpdateUtilsTests::parseRelease_valid()
   QCOMPARE(release->zip.size, 50000000);
   QCOMPARE(release->sha.url, QUrl(kAssetBase + QStringLiteral("12")));
   QCOMPARE(release->sha.size, 85);
+}
+
+void UpdateUtilsTests::parseRelease_platformAsset()
+{
+  QString error;
+  const auto mac = parseRelease(releaseJson(), &error, kMacAssetName);
+  QVERIFY2(mac, qPrintable(error));
+  QCOMPARE(mac->zip.url, QUrl(kAssetBase + QStringLiteral("11")));
+  QCOMPARE(mac->sha.url, QUrl(kAssetBase + QStringLiteral("12")));
+
+  const auto windows = parseRelease(releaseJson(), &error, kWindowsAssetName);
+  QVERIFY2(windows, qPrintable(error));
+  QCOMPARE(windows->zip.url, QUrl(kAssetBase + QStringLiteral("21")));
+  QCOMPARE(windows->sha.url, QUrl(kAssetBase + QStringLiteral("22")));
+  QCOMPARE(windows->sha.size, 83);
+
+  // a release with only the macOS assets is not usable on Windows (the workflow attaches the MSI later)
+  const auto macOnly = QByteArrayLiteral(
+      R"({"tag_name":"v1.27.0.30","assets":[)"
+      R"({"name":"Deskflow-arm64.zip","url":"https://api.github.com/repos/boymep/deskflow/releases/assets/1","size":5},)"
+      R"({"name":"Deskflow-arm64.zip.sha256","url":"https://api.github.com/repos/boymep/deskflow/releases/assets/2","size":85}]})"
+  );
+  QVERIFY(parseRelease(macOnly, &error, kMacAssetName));
+  QVERIFY(!parseRelease(macOnly, &error, kWindowsAssetName));
+  QVERIFY(error.contains(kWindowsAssetName));
+
+  QCOMPARE(shaAssetName(kWindowsAssetName), QStringLiteral("Deskflow-x64.msi.sha256"));
+#if defined(Q_OS_WIN)
+  QCOMPARE(platformAssetName(), kWindowsAssetName);
+#else
+  QCOMPARE(platformAssetName(), kMacAssetName);
+#endif
+  QCOMPARE(deskflow::gui::updates::parseSha256File(kHash + "  Deskflow-x64.msi\n", kWindowsAssetName).value_or(QByteArray()), kHash);
 }
 
 void UpdateUtilsTests::parseRelease_invalid()
