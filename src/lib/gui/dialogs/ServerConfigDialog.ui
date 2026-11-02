@@ -28,16 +28,16 @@
       </attribute>
       <layout class="QVBoxLayout">
        <property name="leftMargin">
-        <number>6</number>
+        <number>12</number>
        </property>
        <property name="topMargin">
-        <number>5</number>
+        <number>12</number>
        </property>
        <property name="rightMargin">
-        <number>6</number>
+        <number>12</number>
        </property>
        <property name="bottomMargin">
-        <number>5</number>
+        <number>12</number>
        </property>
        <item>
         <layout class="QHBoxLayout" name="layoutComputers">
@@ -168,6 +168,21 @@
        <string>Hotkeys</string>
       </attribute>
       <layout class="QHBoxLayout" name="_2">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>12</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>12</number>
+       </property>
        <item>
         <widget class="QGroupBox" name="groupHotkeys">
          <property name="title">
@@ -234,11 +249,6 @@
        </item>
        <item>
         <widget class="QGroupBox" name="groupActions">
-         <property name="font">
-          <font>
-           <kerning>true</kerning>
-          </font>
-         </property>
          <property name="title">
           <string>A&amp;ctions</string>
          </property>
@@ -309,39 +319,40 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_2">
        <property name="leftMargin">
-        <number>15</number>
+        <number>12</number>
        </property>
        <property name="topMargin">
-        <number>15</number>
+        <number>12</number>
        </property>
        <property name="rightMargin">
-        <number>15</number>
+        <number>12</number>
        </property>
        <property name="bottomMargin">
-        <number>15</number>
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>8</number>
        </property>
        <item>
         <widget class="QGroupBox" name="groupMisc">
-         <property name="font">
-          <font>
-           <kerning>false</kerning>
-          </font>
-         </property>
          <property name="title">
           <string>&amp;Misc</string>
          </property>
          <layout class="QVBoxLayout" name="verticalLayout_4">
           <property name="leftMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="topMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="rightMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="bottomMargin">
-           <number>6</number>
+           <number>12</number>
+          </property>
+          <property name="spacing">
+           <number>8</number>
           </property>
           <item>
            <widget class="QCheckBox" name="cbDisableLockToComputer">
@@ -417,6 +428,12 @@
             </item>
             <item>
              <widget class="QSpinBox" name="sbClipboardSizeLimit">
+              <property name="minimumSize">
+               <size>
+                <width>96</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="enabled">
                <bool>false</bool>
               </property>
@@ -437,22 +454,6 @@
               </property>
              </widget>
             </item>
-            <item>
-             <spacer name="horizontalSpacer_3">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
-              <property name="sizeType">
-               <enum>QSizePolicy::Policy::Fixed</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>50</width>
-                <height>20</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
            </layout>
           </item>
          </layout>
@@ -460,29 +461,24 @@
        </item>
        <item>
         <widget class="QGroupBox" name="groupSwitch">
-         <property name="font">
-          <font>
-           <kerning>true</kerning>
-          </font>
-         </property>
          <property name="title">
           <string>&amp;Switching</string>
          </property>
          <layout class="QVBoxLayout">
-          <property name="spacing">
-           <number>6</number>
-          </property>
           <property name="leftMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="topMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="rightMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="bottomMargin">
-           <number>6</number>
+           <number>12</number>
+          </property>
+          <property name="spacing">
+           <number>8</number>
           </property>
           <item>
            <layout class="QHBoxLayout" name="_5">
@@ -511,6 +507,12 @@
             </item>
             <item>
              <widget class="QSpinBox" name="sbSwitchDelay">
+              <property name="minimumSize">
+               <size>
+                <width>96</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="enabled">
                <bool>false</bool>
               </property>
@@ -536,22 +538,6 @@
                <number>250</number>
               </property>
              </widget>
-            </item>
-            <item>
-             <spacer name="spacerSwitchWait_2">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
-              <property name="sizeType">
-               <enum>QSizePolicy::Policy::Fixed</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>50</width>
-                <height>20</height>
-               </size>
-              </property>
-             </spacer>
             </item>
            </layout>
           </item>
@@ -582,6 +568,12 @@
             </item>
             <item>
              <widget class="QSpinBox" name="sbSwitchDoubleTap">
+              <property name="minimumSize">
+               <size>
+                <width>96</width>
+                <height>0</height>
+               </size>
+              </property>
               <property name="enabled">
                <bool>false</bool>
               </property>
@@ -608,22 +600,6 @@
               </property>
              </widget>
             </item>
-            <item>
-             <spacer name="spacerDoubleTap_2">
-              <property name="orientation">
-               <enum>Qt::Orientation::Horizontal</enum>
-              </property>
-              <property name="sizeType">
-               <enum>QSizePolicy::Policy::Fixed</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>50</width>
-                <height>20</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
            </layout>
           </item>
          </layout>
@@ -636,25 +612,37 @@
          </property>
          <layout class="QVBoxLayout" name="verticalLayout_5">
           <property name="leftMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="topMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="rightMargin">
-           <number>6</number>
+           <number>12</number>
           </property>
           <property name="bottomMargin">
-           <number>6</number>
+           <number>12</number>
+          </property>
+          <property name="spacing">
+           <number>8</number>
           </property>
           <item>
            <widget class="QWidget" name="widgetHeartbeat" native="true">
             <layout class="QHBoxLayout" name="groupHeartbeat">
-             <property name="spacing">
-              <number>9</number>
-             </property>
              <property name="leftMargin">
-              <number>1</number>
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <property name="spacing">
+              <number>8</number>
              </property>
              <item>
               <widget class="QCheckBox" name="cbHeartbeat">
@@ -662,7 +650,7 @@
                 <bool>true</bool>
                </property>
                <property name="whatsThis">
-                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Enables the network heartbeat to ping clients every &lt;span style=&quot; font-style:italic;&quot;&gt;n&lt;/span&gt; seconds. This may help to diagnose network problems by retrying the connection if the client becomes unresponsive.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Enables the network heartbeat to ping clients every &lt;span style=" font-style:italic;"&gt;n&lt;/span&gt; seconds. This may help to diagnose network problems by retrying the connection if the client becomes unresponsive.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                </property>
                <property name="text">
                 <string>&amp;Check clients every</string>
@@ -684,6 +672,12 @@
              </item>
              <item>
               <widget class="QSpinBox" name="sbHeartbeat">
+               <property name="minimumSize">
+                <size>
+                 <width>96</width>
+                 <height>0</height>
+                </size>
+               </property>
                <property name="enabled">
                 <bool>false</bool>
                </property>
@@ -710,31 +704,18 @@
                </property>
               </widget>
              </item>
-             <item>
-              <spacer name="spacerNetwork_2">
-               <property name="orientation">
-                <enum>Qt::Orientation::Horizontal</enum>
-               </property>
-               <property name="sizeType">
-                <enum>QSizePolicy::Policy::Fixed</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>50</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
             </layout>
            </widget>
           </item>
           <item>
            <layout class="QHBoxLayout" name="horizontalLayout_5">
+            <property name="spacing">
+             <number>12</number>
+            </property>
             <item>
              <widget class="QLabel" name="labelProtocol">
               <property name="whatsThis">
-               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Enables compatibility with programs that use either the Synergy or Barrier protocols:&lt;/p&gt;&lt;ul style=&quot;margin-top: 0px; margin-bottom: 0px; margin-left: 0px; margin-right: 0px; -qt-list-indent: 1;&quot;&gt;&lt;li style=&quot; margin-top:12px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Synergy 3 uses the Synergy protocol.&lt;/li&gt;&lt;li style=&quot; margin-top:0px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;Barrier, Input-Leap and Synergy 1 uses the Barrier protocol.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;A Deskflow client will automatically use either the Synergy or Barrier protocol depending on the server protocol.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+               <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Enables compatibility with programs that use either the Synergy or Barrier protocols:&lt;/p&gt;&lt;ul style="margin-top: 0px; margin-bottom: 0px; margin-left: 0px; margin-right: 0px; -qt-list-indent: 1;"&gt;&lt;li style=" margin-top:12px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;Synergy 3 uses the Synergy protocol.&lt;/li&gt;&lt;li style=" margin-top:0px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"&gt;Barrier, Input-Leap and Synergy 1 uses the Barrier protocol.&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;A Deskflow client will automatically use either the Synergy or Barrier protocol depending on the server protocol.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
               </property>
               <property name="text">
                <string>Network protocol</string>
@@ -757,6 +738,19 @@
                <string notr="true">Barrier</string>
               </property>
              </widget>
+            </item>
+            <item>
+             <spacer name="spacerProtocol">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>0</width>
+                <height>0</height>
+               </size>
+              </property>
+             </spacer>
             </item>
            </layout>
           </item>
@@ -795,40 +789,15 @@ Enabling this setting will disable the server config GUI.</string>
              <property name="bottomMargin">
               <number>0</number>
              </property>
+             <property name="spacing">
+              <number>8</number>
+             </property>
              <item>
               <widget class="QLabel" name="labelConfigFile">
-               <property name="sizePolicy">
-                <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
-                 <horstretch>0</horstretch>
-                 <verstretch>0</verstretch>
-                </sizepolicy>
-               </property>
-               <property name="minimumSize">
-                <size>
-                 <width>96</width>
-                 <height>0</height>
-                </size>
-               </property>
                <property name="text">
                 <string>Config file path</string>
                </property>
               </widget>
-             </item>
-             <item>
-              <spacer name="horizontalSpacer_6">
-               <property name="orientation">
-                <enum>Qt::Orientation::Horizontal</enum>
-               </property>
-               <property name="sizeType">
-                <enum>QSizePolicy::Policy::Fixed</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>13</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
              </item>
              <item>
               <widget class="QLineEdit" name="lineConfigFile">
