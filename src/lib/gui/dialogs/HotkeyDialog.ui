@@ -14,6 +14,21 @@
    <string>Hotkey</string>
   </property>
   <layout class="QVBoxLayout">
+   <property name="leftMargin">
+    <number>12</number>
+   </property>
+   <property name="topMargin">
+    <number>12</number>
+   </property>
+   <property name="rightMargin">
+    <number>12</number>
+   </property>
+   <property name="bottomMargin">
+    <number>12</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
    <item>
     <widget class="QLabel" name="label">
      <property name="text">

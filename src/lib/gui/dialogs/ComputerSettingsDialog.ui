@@ -14,6 +14,21 @@
    <string>Computer settings</string>
   </property>
   <layout class="QVBoxLayout" name="_2">
+   <property name="leftMargin">
+    <number>12</number>
+   </property>
+   <property name="topMargin">
+    <number>12</number>
+   </property>
+   <property name="rightMargin">
+    <number>12</number>
+   </property>
+   <property name="bottomMargin">
+    <number>12</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
    <item>
     <widget class="QGroupBox" name="groupComputerName">
      <property name="sizePolicy">
@@ -86,8 +101,38 @@
    </item>
    <item>
     <layout class="QHBoxLayout" name="layoutOptions">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
+      <number>0</number>
+     </property>
+     <property name="spacing">
+      <number>12</number>
+     </property>
      <item>
       <layout class="QVBoxLayout" name="layoutLeftSide">
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
        <item>
         <widget class="QGroupBox" name="groupModifers">
          <property name="title">
@@ -424,11 +469,11 @@
           <string>Dead Corners</string>
          </property>
          <layout class="QVBoxLayout" name="verticalLayout_2">
-          <property name="spacing">
-           <number>20</number>
-          </property>
           <property name="sizeConstraint">
            <enum>QLayout::SizeConstraint::SetMinAndMaxSize</enum>
+          </property>
+          <property name="spacing">
+           <number>12</number>
           </property>
           <item>
            <layout class="QHBoxLayout" name="layoutDeadCornersTop">
@@ -542,6 +587,21 @@
      </item>
      <item>
       <layout class="QVBoxLayout" name="layoutRightSide">
+       <property name="spacing">
+        <number>8</number>
+       </property>
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
        <item>
         <widget class="QGroupBox" name="groupFixes">
          <property name="title">
