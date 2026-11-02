@@ -54,7 +54,7 @@ jobs:
       # The upstream release tags (v1.27.0) are not pushed to the fork, but the version is derived from them.
       - name: Fetch upstream version tags
         shell: bash
-        run: git fetch --no-tags --quiet https://github.com/deskflow/deskflow.git 'refs/tags/v*.*.*:refs/tags/v*.*.*'
+        run: git fetch --no-tags --quiet https://github.com/deskflow/deskflow.git '+refs/tags/v*:refs/tags/v*'
 
       - name: Setup VC++ environment
         uses: TheMrMilchmann/setup-msvc-dev@368ef7d1ee4d1171b31d4a7f67f4d954f903f5a9 # v4
