@@ -10,16 +10,12 @@
     <height>197</height>
    </rect>
   </property>
-  <property name="sizePolicy">
-   <sizepolicy hsizetype="Maximum" vsizetype="Maximum">
-    <horstretch>0</horstretch>
-    <verstretch>0</verstretch>
-   </sizepolicy>
-  </property>
   <property name="windowTitle">
    <string>Client Configuration</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing"><number>8</number></property>
+   <property name="sizeConstraint"><enum>QLayout::SizeConstraint::SetFixedSize</enum></property>
    <item>
     <widget class="QCheckBox" name="cbDynamicConnectTime">
      <property name="toolTip">
@@ -48,34 +44,63 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="cbSwapCtrlCmd">
-     <property name="toolTip">
-      <string>Server Ctrl acts as Command and the Windows key as Control. Ctrl+Tab stays Control+Tab.</string>
-     </property>
-     <property name="text">
-      <string>Swap Ctrl and Cmd</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="cbAltTab">
-     <property name="toolTip">
-      <string>Server Alt+Tab opens the macOS app switcher (Command+Tab). Command stays held while Alt is held, so the switcher shortcuts (arrows, Q, H) work. Needs the Windows server keyboard.</string>
-     </property>
-     <property name="text">
-      <string>Alt+Tab switches apps</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="cbCtrlShift">
-     <property name="toolTip">
-      <string>Pressing and releasing Ctrl+Shift on the server keyboard, with no other key in between, selects the next enabled input source on this Mac. Needs the Windows server keyboard.</string>
-     </property>
-     <property name="text">
-      <string>Ctrl+Shift switches input language</string>
-     </property>
-    </widget>
+    <layout class="QVBoxLayout" name="layoutPhysicalDeps">
+     <property name="spacing"><number>8</number></property>
+     <property name="leftMargin"><number>20</number></property>
+     <property name="topMargin"><number>0</number></property>
+     <property name="bottomMargin"><number>0</number></property>
+     <item>
+      <spacer name="indent_cbSwapCtrlCmd">
+       <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Policy::Fixed</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="cbSwapCtrlCmd">
+       <property name="toolTip">
+        <string>Server Ctrl acts as Command and the Windows key as Control. Ctrl+Tab stays Control+Tab.</string>
+       </property>
+       <property name="text">
+        <string>Swap Ctrl and Cmd</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="indent_cbAltTab">
+       <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Policy::Fixed</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="cbAltTab">
+       <property name="toolTip">
+        <string>Server Alt+Tab opens the macOS app switcher (Command+Tab). Command stays held while Alt is held, so the switcher shortcuts (arrows, Q, H) work. Needs the Windows server keyboard.</string>
+       </property>
+       <property name="text">
+        <string>Alt+Tab switches apps</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="indent_cbCtrlShift">
+       <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+       <property name="sizeType"><enum>QSizePolicy::Policy::Fixed</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="cbCtrlShift">
+       <property name="toolTip">
+        <string>Pressing and releasing Ctrl+Shift on the server keyboard, with no other key in between, selects the next enabled input source on this Mac. Needs the Windows server keyboard.</string>
+       </property>
+       <property name="text">
+        <string>Ctrl+Shift switches input language</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="QCheckBox" name="cbSideButtons">
@@ -89,127 +114,58 @@
    </item>
    <item>
     <widget class="QGroupBox" name="groupBox">
-     <property name="title">
-      <string>Scroll Modifiers</string>
-     </property>
+     <property name="title"><string>Scroll Modifiers</string></property>
      <layout class="QGridLayout" name="gridLayout">
-      <item row="5" column="2">
-       <widget class="QCheckBox" name="cbYScrollInvert">
-        <property name="text">
-         <string>Invert</string>
-        </property>
+      <property name="horizontalSpacing"><number>12</number></property>
+      <item row="0" column="0">
+       <widget class="QLabel" name="lblHScroll"><property name="text"><string>Horizontal Scroll</string></property></widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QCheckBox" name="cbXScrollInvert"><property name="text"><string>Invert</string></property></widget>
+      </item>
+      <item row="0" column="2">
+       <widget class="QLabel" name="lblXScrollSpeed">
+        <property name="text"><string>Scale</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
+      </item>
+      <item row="0" column="3">
+       <widget class="QDoubleSpinBox" name="sbXScrollScale">
+        <property name="accelerated"><bool>true</bool></property>
+        <property name="correctionMode"><enum>QAbstractSpinBox::CorrectionMode::CorrectToNearestValue</enum></property>
+        <property name="minimum"><double>0.100000000000000</double></property>
+        <property name="maximum"><double>10.000000000000000</double></property>
+        <property name="singleStep"><double>0.100000000000000</double></property>
+        <property name="value"><double>1.000000000000000</double></property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="lblVScroll"><property name="text"><string>Vertical Scroll</string></property></widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QCheckBox" name="cbYScrollInvert"><property name="text"><string>Invert</string></property></widget>
       </item>
       <item row="1" column="2">
-       <widget class="QCheckBox" name="cbXScrollInvert">
-        <property name="text">
-         <string>Invert</string>
-        </property>
+       <widget class="QLabel" name="lblScrollSpeed">
+        <property name="text"><string>Scale</string></property>
+        <property name="alignment"><set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignVCenter</set></property>
        </widget>
       </item>
-      <item row="5" column="4">
-       <layout class="QHBoxLayout" name="horizontalLayout_2">
-        <item>
-         <widget class="QLabel" name="lblScrollSpeed">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="text">
-           <string>Scale</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QDoubleSpinBox" name="sbYScrollScale">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="accelerated">
-           <bool>true</bool>
-          </property>
-          <property name="correctionMode">
-           <enum>QAbstractSpinBox::CorrectionMode::CorrectToNearestValue</enum>
-          </property>
-          <property name="minimum">
-           <double>0.100000000000000</double>
-          </property>
-          <property name="maximum">
-           <double>10.000000000000000</double>
-          </property>
-          <property name="singleStep">
-           <double>0.100000000000000</double>
-          </property>
-          <property name="value">
-           <double>1.000000000000000</double>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item row="1" column="4">
-       <layout class="QHBoxLayout" name="horizontalLayout_3">
-        <item>
-         <widget class="QLabel" name="lblXScrollSpeed">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Maximum" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="text">
-           <string>Scale</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QDoubleSpinBox" name="sbXScrollScale">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="accelerated">
-           <bool>true</bool>
-          </property>
-          <property name="correctionMode">
-           <enum>QAbstractSpinBox::CorrectionMode::CorrectToNearestValue</enum>
-          </property>
-          <property name="minimum">
-           <double>0.100000000000000</double>
-          </property>
-          <property name="maximum">
-           <double>10.000000000000000</double>
-          </property>
-          <property name="singleStep">
-           <double>0.100000000000000</double>
-          </property>
-          <property name="value">
-           <double>1.000000000000000</double>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item row="1" column="0" colspan="2">
-       <widget class="QLabel" name="lblHScroll">
-        <property name="text">
-         <string>Horizontal Scroll</string>
-        </property>
+      <item row="1" column="3">
+       <widget class="QDoubleSpinBox" name="sbYScrollScale">
+        <property name="accelerated"><bool>true</bool></property>
+        <property name="correctionMode"><enum>QAbstractSpinBox::CorrectionMode::CorrectToNearestValue</enum></property>
+        <property name="minimum"><double>0.100000000000000</double></property>
+        <property name="maximum"><double>10.000000000000000</double></property>
+        <property name="singleStep"><double>0.100000000000000</double></property>
+        <property name="value"><double>1.000000000000000</double></property>
        </widget>
       </item>
-      <item row="5" column="0" colspan="2">
-       <widget class="QLabel" name="lblVScroll">
-        <property name="text">
-         <string>Vertical Scroll</string>
-        </property>
-       </widget>
+      <item row="0" column="4" rowspan="2">
+       <spacer name="spacerScroll">
+        <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+        <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+       </spacer>
       </item>
      </layout>
     </widget>
