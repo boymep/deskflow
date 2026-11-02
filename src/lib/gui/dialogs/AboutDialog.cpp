@@ -32,7 +32,7 @@ AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent), ui{std::make_unique
 
   ui->lblVersion->setText(kDisplayVersion);
   // lupdate marker; the text must match CMAKE_PROJECT_DESCRIPTION
-  QT_TRANSLATE_NOOP("AboutDialog", "Keyboard and mouse sharing utility");
+  Q_UNUSED(QT_TRANSLATE_NOOP("AboutDialog", "Keyboard and mouse sharing utility"));
   ui->lblDescription->setText(QCoreApplication::translate("AboutDialog", kAppDescription));
   ui->lblCopyright->setText(kCopyright);
 

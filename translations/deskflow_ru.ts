@@ -1294,6 +1294,14 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Подробный вывод отладки</translation>
     </message>
     <message>
+        <source>A fine-grained GitHub token with read-only Contents access to the release repository.</source>
+        <translation>Детализированный токен GitHub с доступом «только чтение» к Contents репозитория релизов.</translation>
+    </message>
+    <message>
+        <source>It is stored in the %1.</source>
+        <translation>Хранится в %1.</translation>
+    </message>
+    <message>
         <source>Only available on macOS and Windows</source>
         <translation>Доступно только в macOS и Windows</translation>
     </message>
@@ -1383,7 +1391,7 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
     <message>
         <source>A fine-grained GitHub token with read-only Contents access to the release repository. It is stored in the macOS Keychain.</source>
-        <translation>Детализированный токен GitHub с доступом «только чтение» к Contents репозитория релизов. Хранится в связке ключей macOS.</translation>
+        <translation type="vanished">Детализированный токен GitHub с доступом «только чтение» к Contents репозитория релизов. Хранится в связке ключей macOS.</translation>
     </message>
     <message>
         <source>Forget</source>

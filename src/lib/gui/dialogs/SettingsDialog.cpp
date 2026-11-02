@@ -327,6 +327,12 @@ void SettingsDialog::updateTokenControls()
   ui->btnForgetUpdateToken->setEnabled(hasToken);
   ui->btnCheckUpdates->setEnabled(supported);
 
+  const auto tokenHint = tr("A fine-grained GitHub token with read-only Contents access to the release repository.");
+  if (supported)
+    ui->lineUpdateToken->setToolTip(tokenHint + QLatin1Char(' ') + tr("It is stored in the %1.").arg(UpdateTokenStore::storeName()));
+  else
+    ui->lineUpdateToken->setToolTip(tokenHint);
+
   if (!supported)
     ui->lineUpdateToken->setPlaceholderText(tr("Only available on macOS and Windows"));
   else if (hasToken)
