@@ -15,6 +15,8 @@
 #include "common/Settings.h"
 #include "gui/TlsUtility.h"
 #include "gui/core/NetworkMonitor.h"
+#include "gui/updates/UpdateTokenStore.h"
+#include "gui/updates/UpdateUtils.h"
 #include "gui/widgets/SettingsDialogButtonBox.h"
 
 #include <QComboBox>
@@ -130,6 +132,9 @@ void SettingsDialog::initConnections() const
   connect(ui->rbCloseToTray, &QRadioButton::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbElevateDaemon, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbAutoUpdate, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->lineUpdateToken, &QLineEdit::textChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
+  connect(ui->btnForgetUpdateToken, &QPushButton::clicked, this, &SettingsDialog::forgetUpdateToken);
+  connect(ui->btnCheckUpdates, &QPushButton::clicked, this, &SettingsDialog::checkUpdatesNow);
   connect(ui->cbGuiDebug, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbShowVersion, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbRequireClientCert, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
@@ -220,6 +225,9 @@ void SettingsDialog::updateText()
 
 void SettingsDialog::accept()
 {
+  if (!saveUpdateToken())
+    return;
+
   Settings::setValue(Settings::Core::Port, ui->sbPort->value());
   Settings::setValue(Settings::Core::Interface, ui->comboInterface->currentData());
   Settings::setValue(Settings::Log::Level, ui->comboLogLevel->currentData());
@@ -305,6 +313,61 @@ void SettingsDialog::loadFromConfig()
   qDebug() << "load from config done";
 
   updateControls();
+  ui->lineUpdateToken->clear();
+  updateTokenControls();
+}
+
+void SettingsDialog::updateTokenControls()
+{
+  using deskflow::gui::updates::UpdateTokenStore;
+  const bool supported = UpdateTokenStore::isSupported();
+  const bool hasToken = supported && UpdateTokenStore::hasToken();
+
+  ui->lineUpdateToken->setEnabled(supported);
+  ui->btnForgetUpdateToken->setEnabled(hasToken);
+  ui->btnCheckUpdates->setEnabled(supported);
+
+  if (!supported)
+    ui->lineUpdateToken->setPlaceholderText(tr("Only available on macOS"));
+  else if (hasToken)
+    ui->lineUpdateToken->setPlaceholderText(tr("Saved in the Keychain"));
+  else
+    ui->lineUpdateToken->setPlaceholderText(tr("Paste a token to check for updates"));
+}
+
+bool SettingsDialog::saveUpdateToken()
+{
+  using namespace deskflow::gui::updates;
+  const auto token = ui->lineUpdateToken->text().trimmed();
+  if (token.isEmpty())
+    return true;
+
+  if (!isPlausibleToken(token)) {
+    QMessageBox::warning(this, tr("GitHub token"), tr("The GitHub token contains spaces or unsupported characters."));
+    return false;
+  }
+
+  if (!UpdateTokenStore::saveToken(token)) {
+    QMessageBox::warning(this, tr("GitHub token"), tr("Could not save the GitHub token to the Keychain."));
+    return false;
+  }
+
+  ui->lineUpdateToken->clear();
+  updateTokenControls();
+  return true;
+}
+
+void SettingsDialog::forgetUpdateToken()
+{
+  deskflow::gui::updates::UpdateTokenStore::removeToken();
+  ui->lineUpdateToken->clear();
+  updateTokenControls();
+}
+
+void SettingsDialog::checkUpdatesNow()
+{
+  if (saveUpdateToken())
+    Q_EMIT requestUpdateCheck();
 }
 
 void SettingsDialog::updateTlsControls()
@@ -444,6 +507,7 @@ bool SettingsDialog::isModified() const
       (ui->cbRunExitCommand->isChecked() != Settings::value(Settings::Core::EnableExitCommand).toBool()) ||
       (ui->lineCommandEnter->text() != Settings::value(Settings::Core::ComputerEnterCommand).toString()) ||
       (ui->lineCommandExit->text() != Settings::value(Settings::Core::ComputerExitCommand).toString()) ||
+      !ui->lineUpdateToken->text().isEmpty() ||
       (I18N::nativeTo639Name(ui->comboLanguage->currentText()) != Settings::value(Settings::Core::Language).toString());
 
   if (!ignoreInterface)

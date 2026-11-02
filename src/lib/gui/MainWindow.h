@@ -15,10 +15,10 @@
 #include <QSystemTrayIcon>
 #include <QUrl>
 
-#include "VersionChecker.h"
 #include "config/ServerConfig.h"
 #include "gui/core/CoreProcess.h"
 #include "gui/core/NetworkMonitor.h"
+#include "gui/updates/UpdateFlow.h"
 #include "net/Fingerprint.h"
 
 #ifdef Q_OS_MACOS
@@ -96,7 +96,6 @@ private:
 
   void clearSettings();
   void openAboutDialog();
-  void openGetNewVersionUrl() const;
   void openSettings();
   void startCore();
   void stopCore();
@@ -166,7 +165,7 @@ private:
   inline static const auto m_guiSocketName = QStringLiteral("deskflow-gui");
   inline static const auto m_nameRegEx = QRegularExpression(QStringLiteral("^[\\w\\-_\\.]{0,255}$"));
 
-  VersionChecker m_versionChecker;
+  deskflow::gui::updates::UpdateFlow *m_updateFlow = new deskflow::gui::updates::UpdateFlow(this);
   bool m_secureSocket = false;
   bool m_saveOnExit = true;
   bool m_clientErrorVisible = false;

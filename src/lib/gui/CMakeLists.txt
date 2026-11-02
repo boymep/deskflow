@@ -31,8 +31,6 @@ add_library(${target} STATIC
   StyleUtils.h
   TlsUtility.cpp
   TlsUtility.h
-  VersionChecker.cpp
-  VersionChecker.h
   config/ComputerConfig.h
   config/Computer.cpp
   config/Computer.h
@@ -75,6 +73,14 @@ add_library(${target} STATIC
   ipc/DaemonIpcClient.h
   ipc/CoreIpcClient.cpp
   ipc/CoreIpcClient.h
+  updates/GitHubUpdater.cpp
+  updates/GitHubUpdater.h
+  updates/UpdateFlow.cpp
+  updates/UpdateFlow.h
+  updates/UpdateTokenStore.cpp
+  updates/UpdateTokenStore.h
+  updates/UpdateUtils.cpp
+  updates/UpdateUtils.h
   validators/AliasValidator.cpp
   validators/AliasValidator.h
   validators/ComputerDuplicationsValidator.cpp
@@ -124,3 +130,9 @@ target_link_libraries(${target}
     net
     Qt6::Widgets
 )
+
+if(APPLE)
+  # Keychain storage of the update token
+  find_library(lib_Security Security)
+  target_link_libraries(${target} PRIVATE ${lib_Security})
+endif()

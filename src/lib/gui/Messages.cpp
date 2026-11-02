@@ -10,6 +10,7 @@
 
 #include "common/Settings.h"
 #include "common/UrlConstants.h"
+#include "gui/updates/UpdateUtils.h"
 #include "common/VersionInfo.h"
 
 #include <QCheckBox>
@@ -218,7 +219,7 @@ bool showUpdateCheckOption(QWidget *parent)
           "<p>Checking for updates requires an Internet connection.</p>"
           "<p>URL: <pre>%2</pre></p>"
       )
-          .arg(kAppName, Settings::value(Settings::Gui::UpdateCheckUrl).toString())
+          .arg(kAppName, deskflow::gui::updates::kUrlLatestRelease)
   );
 
   message.exec();

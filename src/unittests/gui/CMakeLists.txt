@@ -3,6 +3,7 @@
 
 add_subdirectory(config)
 add_subdirectory(core)
+add_subdirectory(updates)
 
 create_test(
   NAME LoggerTests

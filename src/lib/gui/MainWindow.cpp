@@ -301,8 +301,8 @@ void MainWindow::connectSlots()
   connect(m_logDock->toggleViewAction(), &QAction::toggled, this, &MainWindow::toggleLogVisible);
 
   connect(m_statusBar, &StatusBar::requestShowMyFingerprints, this, &MainWindow::showMyFingerprint);
-  connect(m_statusBar, &StatusBar::requestUpdateVersion, this, &MainWindow::openGetNewVersionUrl);
-  connect(&m_versionChecker, &VersionChecker::updateFound, m_statusBar, &StatusBar::updateFound);
+  connect(m_statusBar, &StatusBar::requestUpdateVersion, m_updateFlow, &updates::UpdateFlow::offerDownload);
+  connect(m_updateFlow, &updates::UpdateFlow::updateFound, m_statusBar, &StatusBar::updateFound);
 
   connect(m_guiDupeChecker, &QLocalServer::newConnection, this, &MainWindow::showAndActivate);
 
@@ -431,7 +431,7 @@ void MainWindow::clearSettings()
   m_networkMonitor->stopMonitoring();
 
   disconnect(&m_coreProcess, nullptr, this, nullptr);
-  disconnect(&m_versionChecker, nullptr, this, nullptr);
+  disconnect(m_updateFlow, nullptr, this, nullptr);
   disconnect(m_guiDupeChecker, nullptr, this, nullptr);
   disconnect(m_trayIcon, nullptr, this, nullptr);
   disconnect(m_logDock->toggleViewAction(), nullptr, this, nullptr);
@@ -461,16 +461,12 @@ void MainWindow::openAboutDialog()
   about.exec();
 }
 
-void MainWindow::openGetNewVersionUrl() const
-{
-  QDesktopServices::openUrl(QUrl(kUrlDownload));
-}
-
 void MainWindow::openSettings()
 {
   auto dialog = SettingsDialog(this, m_serverConfig);
 
   connect(&dialog, &SettingsDialog::requestRemoveAllSettings, this, &MainWindow::clearSettings, Qt::UniqueConnection);
+  connect(&dialog, &SettingsDialog::requestUpdateCheck, m_updateFlow, &updates::UpdateFlow::checkNow);
   if (dialog.exec() == QDialog::Accepted) {
     Settings::save();
     disconnect(&dialog, &SettingsDialog::requestRemoveAllSettings, nullptr, nullptr);
@@ -645,7 +641,7 @@ void MainWindow::open()
   }
 
   if (Settings::value(Settings::Gui::AutoUpdateCheck).toBool()) {
-    m_versionChecker.checkLatest();
+    m_updateFlow->checkOnStartup();
   } else {
     qDebug() << "skipping check for new version, disabled";
   }
