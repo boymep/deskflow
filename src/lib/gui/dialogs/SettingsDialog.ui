@@ -75,7 +75,7 @@
          <item row="0" column="1">
           <widget class="QComboBox" name="comboLanguage"/>
          </item>
-         <item row="1" column="0" colspan="2">
+         <item row="1" column="1">
           <widget class="QCheckBox" name="cbAutoUpdate">
            <property name="text">
             <string>Check for updates on startup</string>
@@ -134,7 +134,7 @@
            </item>
           </layout>
          </item>
-         <item row="3" column="0" colspan="2">
+         <item row="3" column="1">
           <layout class="QHBoxLayout" name="layoutCheckUpdates">
            <property name="leftMargin">
             <number>0</number>
@@ -173,7 +173,7 @@
            </item>
           </layout>
          </item>
-         <item row="4" column="0" colspan="2">
+         <item row="4" column="1">
           <widget class="QCheckBox" name="cbPreventSleep">
            <property name="text">
             <string>Prevent this computer from going to sleep</string>
@@ -367,7 +367,7 @@
            </layout>
           </widget>
          </item>
-         <item row="2" column="0" colspan="2">
+         <item row="2" column="1">
           <widget class="QCheckBox" name="cbShowVersion">
            <property name="text">
             <string>Include version in the window title</string>
@@ -797,7 +797,7 @@
             </item>
            </layout>
           </item>
-          <item row="2" column="0" colspan="2">
+          <item row="2" column="1">
            <widget class="QCheckBox" name="cbRequireClientCert">
             <property name="text">
              <string>Require client certificates</string>
@@ -871,19 +871,7 @@
         </widget>
        </item>
        <item>
-        <layout class="QFormLayout" name="formCommands">
-         <property name="fieldGrowthPolicy">
-          <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
-         </property>
-         <property name="rowWrapPolicy">
-          <enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum>
-         </property>
-         <property name="labelAlignment">
-          <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set>
-         </property>
-         <property name="formAlignment">
-          <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
-         </property>
+        <layout class="QGridLayout" name="gridCommands">
          <property name="horizontalSpacing">
           <number>12</number>
          </property>

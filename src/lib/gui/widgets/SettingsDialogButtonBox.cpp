@@ -28,6 +28,7 @@ SettingsDialogButtonBox::SettingsDialogButtonBox(QWidget *parent)
   settingsWritableChanged(Settings::isWritable());
 
   auto layout = new QHBoxLayout(this);
+  layout->setContentsMargins(0, 0, 0, 0);
   layout->addWidget(m_lblIcon);
   layout->addWidget(m_lblText);
   layout->addWidget(m_buttonBox);
