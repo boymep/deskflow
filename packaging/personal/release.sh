@@ -16,6 +16,8 @@
 # Release assets (names are fixed, the app looks for exactly these):
 #   Deskflow-arm64.zip          the app, from deskflow-package-mac.sh
 #   Deskflow-arm64.zip.sha256   `shasum -a 256` output with the bare file name
+#   Deskflow-x64.msi            Windows installer, added by the "Windows release" GitHub Actions workflow
+#   Deskflow-x64.msi.sha256     (.github/workflows/windows-release.yml) when the release is published
 set -euo pipefail
 
 REPO=/Users/boymep/Projects/deskflow
@@ -78,3 +80,20 @@ if [ "$DRY_RUN" = 1 ]; then
   exit 0
 fi
 "${PUBLISH[@]}"
+
+# 6. The Windows asset is added by the "Windows release" workflow, started by the published release
+echo "macOS assets are published. The Windows installer (Deskflow-x64.msi) is added by GitHub Actions."
+echo "Until it appears, the Windows app reports that the release has no Windows asset."
+RUN_URL=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  RUN_URL=$(gh run list --repo "$GH_REPO" --workflow windows-release.yml --event release --limit 5 \
+    --json url,headBranch --jq "[.[] | select(.headBranch == \"$TAG\")][0].url // empty" 2>/dev/null || true)
+  [ -z "$RUN_URL" ] || break
+  sleep 3
+done
+if [ -n "$RUN_URL" ]; then
+  echo "windows build: $RUN_URL"
+  echo "watch it with: gh run watch --repo $GH_REPO ${RUN_URL##*/} --exit-status"
+else
+  echo "windows build: not started yet, see https://github.com/$GH_REPO/actions/workflows/windows-release.yml"
+fi
