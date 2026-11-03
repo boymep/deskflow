@@ -122,7 +122,7 @@ deskflow::Computer *ClientApp::createComputer()
       windowsKeyboard.enabled && windowsKeyboard.swapCtrlCmd ? " (ctrl and cmd swapped)" : ""
   );
   LOG_INFO(
-      "alt+tab app switcher is %s, ctrl+shift input source switch is %s, mouse side buttons switch spaces is %s",
+      "alt+tab app switcher is %s, ctrl+shift input source switch is %s, mouse side buttons open mission control is %s",
       windowsKeyboard.altTabAppSwitcher ? "enabled" : "disabled",
       windowsKeyboard.ctrlShiftSwitchesLayout ? "enabled" : "disabled",
       windowsKeyboard.sideButtonsSwitchSpaces ? "enabled" : "disabled"

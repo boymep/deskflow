@@ -507,16 +507,17 @@ void OSXComputer::postMouseEvent(CGPoint &pos) const
   CFRelease(event);
 }
 
-void OSXComputer::switchSpace(bool right)
+void OSXComputer::showMissionControl(bool appWindowsOnly)
 {
-  // macOS ignores a synthetic Control+Arrow for Spaces unless the fn flag is set as well.
-  // The events carry explicit flags, so the keyboard modifier state stays untouched.
-  const CGKeyCode key = right ? kVK_RightArrow : kVK_LeftArrow;
+  // Ctrl+Up is Mission Control, Ctrl+Down is App Exposé. macOS ignores a synthetic Control+Arrow
+  // unless the fn flag is set as well. The events carry explicit flags, so the keyboard modifier
+  // state stays untouched.
+  const CGKeyCode key = appWindowsOnly ? kVK_DownArrow : kVK_UpArrow;
   const CGEventFlags flags = kCGEventFlagMaskControl | kCGEventFlagMaskSecondaryFn;
   for (const bool down : {true, false}) {
     CGEventRef event = CGEventCreateKeyboardEvent(nullptr, key, down);
     if (event == nullptr) {
-      LOG_WARN("unable to create event to switch space");
+      LOG_WARN("unable to create event to show mission control");
       return;
     }
     CGEventSetFlags(event, flags);
@@ -527,10 +528,10 @@ void OSXComputer::switchSpace(bool right)
 
 void OSXComputer::fakeMouseButton(ButtonID id, bool press)
 {
-  // back (4) / forward (5) switch Spaces instead of being posted; swallow the release too
+  // forward (5) opens Mission Control, back (4) opens App Exposé instead of being posted; swallow the release too
   if (m_sideButtonsSwitchSpaces && (id == kButtonExtra0 || id == kButtonExtra1)) {
     if (press) {
-      switchSpace(id == kButtonExtra1);
+      showMissionControl(id == kButtonExtra0);
     }
     return;
   }

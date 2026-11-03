@@ -138,7 +138,7 @@ private:
 
   // map deskflow mouse button to mac buttons
   ButtonID mapDeskflowButtonToMac(uint16_t) const;
-  void switchSpace(bool right);
+  void showMissionControl(bool appWindowsOnly);
 
   // map mac mouse button to deskflow buttons
   ButtonID mapMacButtonToDeskflow(uint16_t) const;

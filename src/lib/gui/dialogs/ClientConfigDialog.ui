@@ -105,10 +105,10 @@
    <item>
     <widget class="QCheckBox" name="cbSideButtons">
      <property name="toolTip">
-      <string>Server mouse back/forward buttons switch to the Space on the left/right instead of being sent as buttons. Works without the Windows server keyboard.</string>
+      <string>Server mouse forward button opens Mission Control and back button opens App Exposé instead of being sent as buttons. Works without the Windows server keyboard.</string>
      </property>
      <property name="text">
-      <string>Mouse side buttons switch Spaces</string>
+      <string>Side mouse buttons open Mission Control (forward) and App Exposé (back)</string>
      </property>
     </widget>
    </item>
