@@ -378,7 +378,6 @@ private:
       Core::UseHooks
     , Client::PhysicalKeys
     , Client::SwapCtrlCmd
-    , Client::AltTabAppSwitcher
     , Client::CtrlShiftSwitchesLayout
     , Client::SideButtonsSwitchSpaces
     , Gui::CloseToTray

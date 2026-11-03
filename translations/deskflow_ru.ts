@@ -199,7 +199,7 @@ p, li { white-space: pre-wrap; }
     </message>
     <message>
         <source>Alt+Tab switches apps</source>
-        <translation>Alt+Tab переключает приложения</translation>
+        <translation>Alt+Tab открывает системный переключатель (Cmd+Tab)</translation>
     </message>
     <message>
         <source>Pressing and releasing Ctrl+Shift on the server keyboard, with no other key in between, selects the next enabled input source on this Mac. Needs the Windows server keyboard.</source>
