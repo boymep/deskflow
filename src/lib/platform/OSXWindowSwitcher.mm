@@ -426,6 +426,7 @@ the window server title; they stay listed with the app name if neither is known.
 //! Strip items for \p strip (Spaces of the display \p screen), titled like Mission Control.
 - (NSArray<DeskflowSwitcherItem *> *)stripItemsFrom:(const std::vector<deskflow::osx::SwitcherStripItem> &)strip
                                              screen:(NSScreen *)screen
+                                          displayId:(uint32_t)displayId
 {
   NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray array];
   _stripTiles.clear();
@@ -442,7 +443,8 @@ the window server title; they stay listed with the app name if neither is known.
     item.space = YES;
     item.currentSpace = space.current;
     item.badge = space.current ? currentLabel : nil;
-    item.spaceSteps = space.steps;
+    item.spaceId = space.spaceId;
+    item.spaceDisplay = displayId;
     if (space.kind == deskflow::osx::SwitcherSpaceKind::Desktop) {
       item.desktop = YES;
       item.title = @(deskflow::osx::switcherDesktopTitle(space.number).c_str());
@@ -579,9 +581,10 @@ the window server title; they stay listed with the app name if neither is known.
   // Spaces of the display under the mouse pointer (Control+Arrow switches that one; the panel shows there)
   NSScreen *screen = [DeskflowSwitcherPanel screenWithMouse];
   NSNumber *displayId = screen.deviceDescription[@"NSScreenNumber"];
+  const uint32_t spacesDisplay =
+      [displayId isKindOfClass:[NSNumber class]] ? displayId.unsignedIntValue : CGMainDisplayID();
   const auto snapshot = deskflow::osx::switcherSpacesSnapshot(
-      [displayId isKindOfClass:[NSNumber class]] ? displayId.unsignedIntValue : CGMainDisplayID(),
-      [self allowedProcesses], axSwitchable, axAnswered, kMaxWindows
+      spacesDisplay, [self allowedProcesses], axSwitchable, axAnswered, kMaxWindows
   );
   NSMutableDictionary<NSNumber *, NSString *> *tileTitles = [NSMutableDictionary dictionary];
   for (const auto &[windowId, title] : snapshot.tileTitles) {
@@ -627,7 +630,7 @@ the window server title; they stay listed with the app name if neither is known.
 
   // strip first (Mission Control order), then the windows by recent use
   NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray array];
-  [items addObjectsFromArray:[self stripItemsFrom:snapshot.strip screen:screen]];
+  [items addObjectsFromArray:[self stripItemsFrom:snapshot.strip screen:screen displayId:spacesDisplay]];
   for (const auto index : deskflow::osx::orderSwitcherCandidates(candidates, onScreenWindowOrder(), _mru)) {
     [items addObject:found[index]];
   }
@@ -749,6 +752,8 @@ the window server title; they stay listed with the app name if neither is known.
 - (void)commit
 {
   if (!_open || _items.count == 0) {
+    // one commit per open: a second Return / Alt release (or a late duplicate) does nothing
+    LOG_DEBUG("window switcher: commit ignored, %s", _open ? "nothing to select" : "not open");
     [self hidePanel];
     return;
   }
@@ -780,7 +785,9 @@ the window server title; they stay listed with the app name if neither is known.
 - (void)activate:(DeskflowSwitcherItem *)item
 {
   if (item.space) {
-    deskflow::osx::switcherSwitchSpaces(item.spaceSteps); // nothing for the current Space
+    if (!item.currentSpace) {
+      deskflow::osx::switcherSwitchToSpace(item.spaceDisplay, item.spaceId);
+    }
     return;
   }
   NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:item.pid];

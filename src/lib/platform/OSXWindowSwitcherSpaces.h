@@ -66,12 +66,16 @@ SwitcherSpacesSnapshot switcherSpacesSnapshot(
 //! Windows of the fullscreen Spaces shown right now (all displays); empty if none or unknown.
 std::vector<SwitcherTile> switcherVisibleFullscreenWindows();
 
-//! Switches the display under the mouse pointer by \p steps desktops (positive: right) with Control+Arrow.
+//! Switches display \p displayId (CGDirectDisplayID) to Space \p spaceId.
 /*!
-Main thread. Posts the same key events as the side buttons (Control and fn flags), one step every
-few hundred milliseconds so the Space animation can finish. Does nothing for 0 steps.
+Main thread, returns at once. A fullscreen Space is reached by focusing its window. Otherwise one
+Control+Arrow (the same key event as the side buttons) is posted at a time; the next one only after
+the window server reports the expected Space as current, and the remaining distance is recomputed
+from the Space that is current then, so the switch never goes past the target. It stops if a step
+does not land within a second, if anybody else switches Spaces meanwhile, or when a newer switch
+starts. Each step is logged at INFO.
 */
-void switcherSwitchSpaces(int steps);
+void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId);
 
 //! Brings window \p windowId of \p pid to the front and makes it key; macOS switches to its Space.
 /*!

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <tuple>
@@ -349,6 +350,30 @@ std::vector<SwitcherStripItem> switcherSpaceStrip(const std::vector<SwitcherSpac
     }
   }
   return strip;
+}
+
+SwitcherSpaceStepPlan
+switcherPlanSpaceStep(const std::vector<uint64_t> &order, uint64_t current, uint64_t target, uint64_t previousExpected)
+{
+  SwitcherSpaceStepPlan plan;
+  if (previousExpected != 0 && current != previousExpected) {
+    return plan; // not where the last step should have landed: someone else switched
+  }
+  const auto from = std::find(order.begin(), order.end(), current);
+  const auto to = std::find(order.begin(), order.end(), target);
+  if (current == 0 || target == 0 || from == order.end() || to == order.end()) {
+    return plan;
+  }
+  const auto distance = static_cast<int>(to - from);
+  if (distance == 0) {
+    plan.action = SwitcherSpaceStepPlan::Action::Done;
+    return plan;
+  }
+  plan.action = SwitcherSpaceStepPlan::Action::Step;
+  plan.direction = distance > 0 ? 1 : -1;
+  plan.remaining = std::abs(distance);
+  plan.expected = *(from + plan.direction);
+  return plan;
 }
 
 std::vector<std::string> switcherFullscreenTitles(const std::vector<std::vector<SwitcherTileName>> &spaces)

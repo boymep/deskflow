@@ -42,4 +42,6 @@ private Q_SLOTS:
   void initialSelectionFallbacks();
   void desktopTitle();
   void lruBoundedAndRecent();
+  void spaceStepPlanner();
+  void spaceStepPlannerAborts();
 };

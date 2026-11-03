@@ -236,6 +236,131 @@ constexpr float kRemoteAxTimeout = 0.05f;      // per call; a hung app must not 
 constexpr int kMaxFailedCalls = 3;             // consecutive timeouts before an app is given up
 constexpr CFAbsoluteTime kMissRetryDelay = 30; // seconds before a window not found is searched again
 
+// --- closed-loop Space switch -----------------------------------------------------------------
+
+//! Spaces of one display: the strip order (Control+Arrow order) and the current Space.
+struct DisplaySpaces
+{
+  uint64_t current = 0;
+  std::vector<SwitcherSpaceEntry> entries; //!< desktops and fullscreen Spaces, Mission Control order
+  std::vector<uint64_t> order;             //!< their ids
+};
+
+bool readDisplaySpaces(uint32_t displayId, DisplaySpaces &out)
+{
+  NSDictionary *display = managedDisplay(copyDisplays(spi().connection()), displayId);
+  if (display == nil) {
+    return false;
+  }
+  out.current = spaceIdOf(display[@"Current Space"]);
+  for (auto &entry : entriesOf(display)) {
+    if (entry.kind != SwitcherSpaceKind::Other) {
+      out.order.push_back(entry.id);
+      out.entries.push_back(std::move(entry));
+    }
+  }
+  return out.current != 0;
+}
+
+//! One Space switch in progress; copied into each scheduled block (main thread only).
+struct SpaceSwitch
+{
+  uint64_t generation = 0;
+  uint32_t displayId = 0;
+  uint64_t target = 0;
+  uint64_t from = 0;     //!< Space current when the last step was posted
+  uint64_t expected = 0; //!< Space the last step must reach; 0 before the first step
+  CFAbsoluteTime postedAt = 0;
+  int steps = 0; //!< steps posted so far
+};
+
+uint64_t g_spaceSwitchGeneration = 0; // main thread; a newer switch cancels the running one
+
+constexpr CFAbsoluteTime kSpacePollInterval = 0.02; // how often the current Space is read while a step runs
+constexpr CFAbsoluteTime kSpaceStepTimeout = 1.0;   // a step that did not land by then stops the switch
+constexpr CFAbsoluteTime kSpaceStepInterval = 0.3;  // at least this long between two steps (animation)
+
+void postSpaceStep(int direction)
+{
+  constexpr CGKeyCode kLeftArrow = 123;
+  constexpr CGKeyCode kRightArrow = 124;
+  const CGKeyCode key = direction > 0 ? kRightArrow : kLeftArrow;
+  for (const bool down : {true, false}) {
+    CGEventRef event = CGEventCreateKeyboardEvent(nullptr, key, down);
+    if (event == nullptr) {
+      return;
+    }
+    // same flags as the side buttons: macOS ignores a synthetic Control+Arrow without fn
+    CGEventSetFlags(event, kCGEventFlagMaskControl | kCGEventFlagMaskSecondaryFn);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+  }
+}
+
+void continueSpaceSwitch(SpaceSwitch session);
+
+void scheduleSpaceSwitch(const SpaceSwitch &session, CFAbsoluteTime delay)
+{
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        continueSpaceSwitch(session);
+      }
+  );
+}
+
+void continueSpaceSwitch(SpaceSwitch session)
+{
+  using Action = deskflow::osx::SwitcherSpaceStepPlan::Action;
+  if (session.generation != g_spaceSwitchGeneration) {
+    LOG_INFO("space switch: replaced by a newer one after %d steps", session.steps);
+    return;
+  }
+  DisplaySpaces spaces;
+  if (!readDisplaySpaces(session.displayId, spaces)) {
+    LOG_INFO("space switch: spaces unknown after %d steps, stopped", session.steps);
+    return;
+  }
+  const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+  if (session.expected != 0 && spaces.current == session.from) {
+    // the last step has not landed yet
+    if (now - session.postedAt > kSpaceStepTimeout) {
+      LOG_INFO("space switch: step %d did not land within a second, stopped", session.steps);
+      return;
+    }
+    scheduleSpaceSwitch(session, kSpacePollInterval);
+    return;
+  }
+  const auto plan =
+      deskflow::osx::switcherPlanSpaceStep(spaces.order, spaces.current, session.target, session.expected);
+  switch (plan.action) {
+  case Action::Done:
+    LOG_INFO("space switch: arrived after %d steps", session.steps);
+    return;
+  case Action::Abort:
+    LOG_INFO(
+        "space switch: stopped after %d steps, %s", session.steps,
+        session.expected != 0 ? "spaces were switched by something else" : "current or target space unknown"
+    );
+    return;
+  case Action::Step:
+    break;
+  }
+  if (session.expected != 0 && now - session.postedAt < kSpaceStepInterval) {
+    scheduleSpaceSwitch(session, kSpaceStepInterval - (now - session.postedAt));
+    return;
+  }
+  session.from = spaces.current;
+  session.expected = plan.expected;
+  session.postedAt = now;
+  ++session.steps;
+  LOG_INFO(
+      "space switch: step %d to the %s, %d left", session.steps, plan.direction > 0 ? "right" : "left",
+      plan.remaining - 1
+  );
+  postSpaceStep(plan.direction);
+  scheduleSpaceSwitch(session, kSpacePollInterval);
+}
+
 } // namespace
 
 namespace deskflow::osx {
@@ -382,29 +507,28 @@ std::vector<SwitcherTile> switcherVisibleFullscreenWindows()
   return result;
 }
 
-void switcherSwitchSpaces(int steps)
+void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId)
 {
-  constexpr CGKeyCode kLeftArrow = 123;
-  constexpr CGKeyCode kRightArrow = 124;
-  constexpr int64_t kStepDelayMs = 350;
-  if (steps == 0) {
+  const SpaceSwitch session{++g_spaceSwitchGeneration, displayId, spaceId};
+  DisplaySpaces spaces;
+  if (!switcherSpacesAvailable() || !readDisplaySpaces(displayId, spaces)) {
+    LOG_INFO("space switch: spaces of display %u unknown, nothing done", displayId);
     return;
   }
-  const CGKeyCode key = steps > 0 ? kRightArrow : kLeftArrow;
-  for (int i = 0; i < std::abs(steps); ++i) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, i * kStepDelayMs * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-      for (const bool down : {true, false}) {
-        CGEventRef event = CGEventCreateKeyboardEvent(nullptr, key, down);
-        if (event == nullptr) {
-          return;
-        }
-        // same flags as the side buttons: macOS ignores a synthetic Control+Arrow without fn
-        CGEventSetFlags(event, kCGEventFlagMaskControl | kCGEventFlagMaskSecondaryFn);
-        CGEventPost(kCGHIDEventTap, event);
-        CFRelease(event);
-      }
-    });
+  const auto target = std::find_if(spaces.entries.begin(), spaces.entries.end(), [spaceId](const auto &entry) {
+    return entry.id == spaceId;
+  });
+  if (target != spaces.entries.end() && target->kind == SwitcherSpaceKind::Fullscreen && !target->tiles.empty() &&
+      spaces.current != spaceId) {
+    // no stepping through the Spaces in between: macOS switches to the Space of a focused window
+    const auto &tile = target->tiles.front();
+    if (switcherFocusWindow(tile.pid, tile.windowId)) {
+      LOG_INFO("space switch: focused the window of fullscreen space %llu", static_cast<unsigned long long>(spaceId));
+      return;
+    }
+    LOG_INFO("space switch: fullscreen window could not be focused, stepping instead");
   }
+  continueSpaceSwitch(session);
 }
 
 bool switcherFocusWindow(SwitcherPid pid, SwitcherWindowId windowId)

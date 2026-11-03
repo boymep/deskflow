@@ -394,6 +394,51 @@ void OSXWindowSwitcherModelTests::spaceStripSingleDesktop()
   QCOMPARE(strip[3].steps, 2);
 }
 
+void OSXWindowSwitcherModelTests::spaceStepPlanner()
+{
+  using Action = SwitcherSpaceStepPlan::Action;
+  const std::vector<uint64_t> order{11, 22, 33, 44};
+
+  // Desktop 1 -> Desktop 3: one step at a time, each recomputed from the Space that is current
+  auto plan = switcherPlanSpaceStep(order, 11, 33, 0);
+  QCOMPARE(plan.action, Action::Step);
+  QCOMPARE(plan.direction, 1);
+  QCOMPARE(plan.remaining, 2);
+  QCOMPARE(plan.expected, uint64_t{22});
+  plan = switcherPlanSpaceStep(order, 22, 33, plan.expected);
+  QCOMPARE(plan.action, Action::Step);
+  QCOMPARE(plan.remaining, 1);
+  QCOMPARE(plan.expected, uint64_t{33});
+  // arrived: never one step more
+  QCOMPARE(switcherPlanSpaceStep(order, 33, 33, plan.expected).action, Action::Done);
+
+  // to the left
+  plan = switcherPlanSpaceStep(order, 44, 22, 0);
+  QCOMPARE(plan.action, Action::Step);
+  QCOMPARE(plan.direction, -1);
+  QCOMPARE(plan.remaining, 2);
+  QCOMPARE(plan.expected, uint64_t{33});
+
+  // already there
+  QCOMPARE(switcherPlanSpaceStep(order, 22, 22, 0).action, Action::Done);
+}
+
+void OSXWindowSwitcherModelTests::spaceStepPlannerAborts()
+{
+  using Action = SwitcherSpaceStepPlan::Action;
+  const std::vector<uint64_t> order{11, 22, 33, 44};
+
+  // a step that went one Space too far (e.g. a doubled key event) must not be corrected by stepping on
+  QCOMPARE(switcherPlanSpaceStep(order, 33, 33, 22).action, Action::Abort);
+  // the user switched elsewhere meanwhile
+  QCOMPARE(switcherPlanSpaceStep(order, 11, 33, 22).action, Action::Abort);
+  // unknown Spaces
+  QCOMPARE(switcherPlanSpaceStep(order, 99, 33, 0).action, Action::Abort);
+  QCOMPARE(switcherPlanSpaceStep(order, 11, 99, 0).action, Action::Abort);
+  QCOMPARE(switcherPlanSpaceStep(order, 0, 33, 0).action, Action::Abort);
+  QCOMPARE(switcherPlanSpaceStep({}, 11, 11, 0).action, Action::Abort);
+}
+
 void OSXWindowSwitcherModelTests::spaceStripUnknownCurrent()
 {
   const std::vector<SwitcherSpaceEntry> spaces{{1, SwitcherSpaceKind::Desktop, {}}, {2, SwitcherSpaceKind::Other, {}}};

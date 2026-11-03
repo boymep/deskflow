@@ -174,6 +174,31 @@ fullscreen Space of \p spaces, since the steps would be unknown.
 */
 std::vector<SwitcherStripItem> switcherSpaceStrip(const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current);
 
+//! What the closed-loop Space switch does next (see switcherPlanSpaceStep).
+struct SwitcherSpaceStepPlan
+{
+  enum class Action : uint8_t
+  {
+    Done,  //!< the current Space is the target
+    Step,  //!< post one Control+Arrow in \c direction, then wait for \c expected to become current
+    Abort, //!< the Spaces are unknown or someone else switched Spaces meanwhile
+  };
+  Action action = Action::Abort;
+  int direction = 0;     //!< +1: Control+Right, -1: Control+Left (Step only)
+  int remaining = 0;     //!< steps left to the target, this one included (Step only)
+  uint64_t expected = 0; //!< the Space that must become current after this step (Step only)
+};
+
+//! Next step of a Space switch, from the Space that is current right now.
+/*!
+\p order: Space ids of the display in Control+Arrow order (the strip order). \p previousExpected: the
+Space the previous step was to reach, 0 before the first step; if \p current differs from it, the user
+or the system switched meanwhile and the switch aborts. The distance is recomputed from \p current on
+every call, so a lost or a doubled step never makes the switch go past the target.
+*/
+SwitcherSpaceStepPlan
+switcherPlanSpaceStep(const std::vector<uint64_t> &order, uint64_t current, uint64_t target, uint64_t previousExpected);
+
 //! Names of one window of a fullscreen Space.
 struct SwitcherTileName
 {
