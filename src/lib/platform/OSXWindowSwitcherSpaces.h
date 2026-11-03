@@ -24,6 +24,8 @@ at runtime; if any is missing, the switcher keeps its current-Space-only
 behaviour. Window titles are never logged.
 */
 
+@class DeskflowSwitcherRemoteWindows;
+
 namespace deskflow::osx {
 
 //! A window of the switcher's window grid as listed by the window server.
@@ -68,14 +70,21 @@ std::vector<SwitcherTile> switcherVisibleFullscreenWindows();
 
 //! Switches display \p displayId (CGDirectDisplayID) to Space \p spaceId.
 /*!
-Main thread, returns at once. Desktops and fullscreen Spaces are both reached by stepping: one
+Main thread, returns at once. A fullscreen Space, or a desktop with a window on it, is first jumped
+to directly (one transition, like the Dock): the window's app is brought forward by the methods of
+SwitcherDirectMethod, one after another, until the window server reports a Space transition or the
+target as current (about a second at most; \p remote supplies Accessibility elements of windows on
+other Spaces). The method that works is tried first next time; DESKFLOW_SWITCHER_DIRECT_ORDER (e.g.
+"CAB", or "none") sets the initial order.
+
+Otherwise (empty desktops, or every method failed) the Space is reached by stepping: one
 Control+Arrow (the same key event as the side buttons) is posted at a time; the next one only after
 the window server reports the expected Space as current, and the remaining distance is recomputed
 from the Space that is current then, so the switch never goes past the target. It stops if a step
 does not land within a second, if anybody else switches Spaces meanwhile, or when a newer switch
-starts. Each step is logged at INFO.
+starts. Each method and step is logged at INFO.
 */
-void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId);
+void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitcherRemoteWindows *_Nullable remote);
 
 //! Brings window \p windowId of \p pid to the front and makes it key; macOS switches to its Space.
 /*!
@@ -105,6 +114,10 @@ and results are cached per window id until the window disappears.
 + (BOOL)available;
 //! The cached element of \p windowId, or nil.
 - (nullable DeskflowSwitcherRemoteWindow *)cachedWindow:(uint32_t)windowId;
+//! The element of \p windowId of \p pid: cached, or searched now on the calling thread for at most \p budget seconds.
+- (nullable DeskflowSwitcherRemoteWindow *)windowNow:(uint32_t)windowId
+                                                 pid:(pid_t)pid
+                                              budget:(CFAbsoluteTime)budget;
 //! True if \p windowId turned out not to be a standard window; it should not be listed.
 - (BOOL)isRejected:(uint32_t)windowId;
 //! Marks \p windowIds as not standard windows (Accessibility listed them on a visible Space).

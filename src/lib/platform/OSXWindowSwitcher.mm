@@ -786,7 +786,7 @@ the window server title; they stay listed with the app name if neither is known.
 {
   if (item.space) {
     if (!item.currentSpace) {
-      deskflow::osx::switcherSwitchToSpace(item.spaceDisplay, item.spaceId);
+      deskflow::osx::switcherSwitchToSpace(item.spaceDisplay, item.spaceId, _remote);
     }
     return;
   }

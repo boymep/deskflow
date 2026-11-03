@@ -199,6 +199,74 @@ every call, so a lost or a doubled step never makes the switch go past the targe
 SwitcherSpaceStepPlan
 switcherPlanSpaceStep(const std::vector<uint64_t> &order, uint64_t current, uint64_t target, uint64_t previousExpected);
 
+//! A way to jump straight to a window's Space (one transition) instead of stepping.
+enum class SwitcherDirectMethod : uint8_t
+{
+  Accessibility, //!< "A": app frontmost, window main + focused, AXRaise
+  Activation,    //!< "B": NSRunningApplication activation of the owning app, then A
+  WindowServer,  //!< "C": window server front process + make-key event records, then AXRaise
+};
+
+//! The letter of \p method in the log and in the order setting: "A", "B" or "C".
+const char *switcherDirectMethodName(SwitcherDirectMethod method);
+
+//! The methods tried by default, in this order.
+std::vector<SwitcherDirectMethod> switcherDefaultDirectMethods();
+
+//! The order given by \p spec (letters A, B, C, case-insensitive; other characters separate them).
+/*!
+Unknown letters and repeats are skipped. Empty or nothing valid yields the default order; "-" or
+"none" yields no methods (always step).
+*/
+std::vector<SwitcherDirectMethod> switcherParseDirectMethods(const std::string &spec);
+
+//! \p order with \p method moved to the front (the one that worked is tried first next time).
+std::vector<SwitcherDirectMethod>
+switcherPromoteDirectMethod(const std::vector<SwitcherDirectMethod> &order, SwitcherDirectMethod method);
+
+//! Timing of the direct Space switch, in seconds.
+struct SwitcherDirectTiming
+{
+  double perMethod = 0.35;      //!< wait for a transition to start after a method
+  double total = 1.05;          //!< no new method after this (stepping starts instead)
+  double animationLimit = 2.0;  //!< longest wait for a transition that has started
+  double settle = 0.25;         //!< wait after the animation ended for the current Space to update
+};
+
+//! What the direct Space switch observes on one poll.
+struct SwitcherDirectObservation
+{
+  uint64_t current = 0;       //!< current Space of the display, 0 if unknown
+  bool animating = false;     //!< the display shows a Space transition
+  double sinceStart = 0;      //!< since the direct switch started
+  double sinceMethod = 0;     //!< since the last method was tried (ignored before the first)
+  double sinceAnimation = -1; //!< since a transition was last seen, negative if never (this method)
+};
+
+//! What the direct Space switch does next (see switcherPlanDirectSwitch).
+struct SwitcherDirectPlan
+{
+  enum class Action : uint8_t
+  {
+    Try,      //!< try \c method, then poll again
+    Wait,     //!< poll again later
+    Arrived,  //!< the target is current
+    FallBack, //!< every method failed, time is up or the Spaces moved elsewhere: step from the current Space
+  };
+  Action action = Action::FallBack;
+  SwitcherDirectMethod method = SwitcherDirectMethod::Accessibility; //!< Try only
+};
+
+//! Next action of the direct Space switch from \p from to \p target (pure).
+/*!
+\p tried methods of \p order were tried so far. A method counts as working once a transition
+starts (\c animating) or the target becomes current; then it is waited for, not tried again.
+*/
+SwitcherDirectPlan switcherPlanDirectSwitch(
+    const std::vector<SwitcherDirectMethod> &order, size_t tried, uint64_t from, uint64_t target,
+    const SwitcherDirectObservation &now, const SwitcherDirectTiming &timing = {}
+);
+
 //! Names of one window of a fullscreen Space.
 struct SwitcherTileName
 {

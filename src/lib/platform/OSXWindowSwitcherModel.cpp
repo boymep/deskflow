@@ -10,6 +10,7 @@
 #include <QString>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -214,6 +215,94 @@ std::array<uint8_t, kSwitcherEventRecordSize> switcherMakeKeyWindowEvent(Switche
   const uint32_t id = windowId;
   std::memcpy(record.data() + 0x3c, &id, sizeof(id));
   return record;
+}
+
+const char *switcherDirectMethodName(SwitcherDirectMethod method)
+{
+  switch (method) {
+  case SwitcherDirectMethod::Accessibility:
+    return "A";
+  case SwitcherDirectMethod::Activation:
+    return "B";
+  case SwitcherDirectMethod::WindowServer:
+    return "C";
+  }
+  return "?";
+}
+
+std::vector<SwitcherDirectMethod> switcherDefaultDirectMethods()
+{
+  return {SwitcherDirectMethod::Accessibility, SwitcherDirectMethod::Activation, SwitcherDirectMethod::WindowServer};
+}
+
+std::vector<SwitcherDirectMethod> switcherParseDirectMethods(const std::string &spec)
+{
+  std::string lower;
+  for (const char c : spec) {
+    lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+  }
+  if (lower == "-" || lower == "none") {
+    return {};
+  }
+  std::vector<SwitcherDirectMethod> order;
+  for (const char c : lower) {
+    std::optional<SwitcherDirectMethod> method;
+    if (c == 'a') {
+      method = SwitcherDirectMethod::Accessibility;
+    } else if (c == 'b') {
+      method = SwitcherDirectMethod::Activation;
+    } else if (c == 'c') {
+      method = SwitcherDirectMethod::WindowServer;
+    }
+    if (method && std::find(order.begin(), order.end(), *method) == order.end()) {
+      order.push_back(*method);
+    }
+  }
+  return order.empty() ? switcherDefaultDirectMethods() : order;
+}
+
+std::vector<SwitcherDirectMethod>
+switcherPromoteDirectMethod(const std::vector<SwitcherDirectMethod> &order, SwitcherDirectMethod method)
+{
+  std::vector<SwitcherDirectMethod> result{method};
+  for (const auto m : order) {
+    if (m != method) {
+      result.push_back(m);
+    }
+  }
+  return result;
+}
+
+SwitcherDirectPlan switcherPlanDirectSwitch(
+    const std::vector<SwitcherDirectMethod> &order, size_t tried, uint64_t from, uint64_t target,
+    const SwitcherDirectObservation &now, const SwitcherDirectTiming &timing
+)
+{
+  using Action = SwitcherDirectPlan::Action;
+  if (now.current == 0 || target == 0) {
+    return {Action::FallBack};
+  }
+  if (now.current == target) {
+    return {Action::Arrived};
+  }
+  if (tried > 0) {
+    // a transition has started (or just ended and the current Space is not updated yet): wait for it
+    const bool transition =
+        now.animating || (now.sinceAnimation >= 0 && now.sinceAnimation < timing.settle);
+    if (transition) {
+      return {now.sinceMethod < timing.animationLimit ? Action::Wait : Action::FallBack};
+    }
+    if (now.current != from) {
+      return {Action::FallBack}; // landed elsewhere: stepping goes on from there
+    }
+    if (now.sinceMethod < timing.perMethod) {
+      return {Action::Wait};
+    }
+  }
+  if (tried >= order.size() || (tried > 0 && now.sinceStart >= timing.total)) {
+    return {Action::FallBack};
+  }
+  return {Action::Try, order[tried]};
 }
 
 size_t switcherInitialSelection(size_t count, bool reverse)

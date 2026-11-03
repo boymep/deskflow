@@ -44,4 +44,7 @@ private Q_SLOTS:
   void lruBoundedAndRecent();
   void spaceStepPlanner();
   void spaceStepPlannerAborts();
+  void directMethodOrder();
+  void directSwitchPlanner();
+  void directSwitchPlannerWaitsForTransition();
 };

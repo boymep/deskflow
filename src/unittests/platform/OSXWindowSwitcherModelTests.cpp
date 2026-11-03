@@ -394,6 +394,92 @@ void OSXWindowSwitcherModelTests::spaceStripSingleDesktop()
   QCOMPARE(strip[3].steps, 2);
 }
 
+void OSXWindowSwitcherModelTests::directMethodOrder()
+{
+  using M = SwitcherDirectMethod;
+  const std::vector<M> defaults{M::Accessibility, M::Activation, M::WindowServer};
+  QVERIFY(switcherDefaultDirectMethods() == defaults);
+  QVERIFY(switcherParseDirectMethods("") == defaults);
+  QVERIFY(switcherParseDirectMethods("xyz") == defaults);
+  QVERIFY((switcherParseDirectMethods("C,a b") == std::vector<M>{M::WindowServer, M::Accessibility, M::Activation}));
+  QVERIFY((switcherParseDirectMethods("cc") == std::vector<M>{M::WindowServer}));
+  QVERIFY(switcherParseDirectMethods("none").empty());
+  QVERIFY(switcherParseDirectMethods("-").empty());
+  QVERIFY((switcherPromoteDirectMethod(defaults, M::WindowServer) ==
+           std::vector<M>{M::WindowServer, M::Accessibility, M::Activation}));
+  QVERIFY(switcherPromoteDirectMethod(defaults, M::Accessibility) == defaults);
+  QCOMPARE(QString(switcherDirectMethodName(M::Accessibility)), QString("A"));
+  QCOMPARE(QString(switcherDirectMethodName(M::Activation)), QString("B"));
+  QCOMPARE(QString(switcherDirectMethodName(M::WindowServer)), QString("C"));
+}
+
+void OSXWindowSwitcherModelTests::directSwitchPlanner()
+{
+  using Action = SwitcherDirectPlan::Action;
+  using M = SwitcherDirectMethod;
+  const auto order = switcherDefaultDirectMethods();
+  const SwitcherDirectTiming timing;
+  auto at = [](uint64_t current, double sinceStart, double sinceMethod) {
+    SwitcherDirectObservation o;
+    o.current = current;
+    o.sinceStart = sinceStart;
+    o.sinceMethod = sinceMethod;
+    return o;
+  };
+
+  // the first method right away
+  auto plan = switcherPlanDirectSwitch(order, 0, 1, 9, at(1, 0, 0), timing);
+  QCOMPARE(plan.action, Action::Try);
+  QCOMPARE(plan.method, M::Accessibility);
+  // nothing happened yet: wait, then the next method
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, at(1, 0.1, 0.1), timing).action, Action::Wait);
+  plan = switcherPlanDirectSwitch(order, 1, 1, 9, at(1, 0.36, 0.36), timing);
+  QCOMPARE(plan.action, Action::Try);
+  QCOMPARE(plan.method, M::Activation);
+  plan = switcherPlanDirectSwitch(order, 2, 1, 9, at(1, 0.72, 0.36), timing);
+  QCOMPARE(plan.action, Action::Try);
+  QCOMPARE(plan.method, M::WindowServer);
+  // all failed: step
+  QCOMPARE(switcherPlanDirectSwitch(order, 3, 1, 9, at(1, 1.08, 0.36), timing).action, Action::FallBack);
+  // out of time before the last method: step
+  QCOMPARE(switcherPlanDirectSwitch(order, 2, 1, 9, at(1, 1.1, 0.36), timing).action, Action::FallBack);
+  // arrived
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, at(9, 0.2, 0.2), timing).action, Action::Arrived);
+  // landed on another Space: step from there
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, at(5, 0.2, 0.2), timing).action, Action::FallBack);
+  // no methods or unknown Spaces: step at once
+  QCOMPARE(switcherPlanDirectSwitch({}, 0, 1, 9, at(1, 0, 0), timing).action, Action::FallBack);
+  QCOMPARE(switcherPlanDirectSwitch(order, 0, 1, 9, at(0, 0, 0), timing).action, Action::FallBack);
+  // a promoted order starts with the method that worked
+  plan = switcherPlanDirectSwitch(switcherPromoteDirectMethod(order, M::WindowServer), 0, 1, 9, at(1, 0, 0), timing);
+  QCOMPARE(plan.method, M::WindowServer);
+}
+
+void OSXWindowSwitcherModelTests::directSwitchPlannerWaitsForTransition()
+{
+  using Action = SwitcherDirectPlan::Action;
+  const auto order = switcherDefaultDirectMethods();
+  const SwitcherDirectTiming timing;
+  SwitcherDirectObservation o;
+  o.current = 1;
+  o.sinceStart = 0.9;
+  o.sinceMethod = 0.9;
+  o.animating = true;
+  // a transition is running: no new method and no stepping, even past the per-method wait
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, o, timing).action, Action::Wait);
+  // it just ended, the current Space is not updated yet
+  o.animating = false;
+  o.sinceAnimation = 0.1;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, o, timing).action, Action::Wait);
+  // ended long ago without arriving: the next method
+  o.sinceAnimation = 0.5;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, o, timing).action, Action::Try);
+  // a transition that never ends: step
+  o.animating = true;
+  o.sinceMethod = 2.5;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, o, timing).action, Action::FallBack);
+}
+
 void OSXWindowSwitcherModelTests::spaceStepPlanner()
 {
   using Action = SwitcherSpaceStepPlan::Action;
