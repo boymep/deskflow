@@ -10,6 +10,8 @@ add_executable(${target}
   CoreArgs.h
   CoreArgParser.h
   CoreArgParser.cpp
+  UpdateHelper.cpp
+  UpdateHelper.h
 )
 
 if(WIN32)

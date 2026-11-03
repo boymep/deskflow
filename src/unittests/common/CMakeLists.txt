@@ -35,3 +35,10 @@ create_test(
   SOURCE CoreRecoveryTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/common"
 )
+
+create_test(
+  NAME UpdateInstallTests
+  DEPENDS common
+  SOURCE UpdateInstallTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/common"
+)

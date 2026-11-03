@@ -15,6 +15,8 @@ add_library(common STATIC
   Coordinate.h
   CoreRecovery.cpp
   CoreRecovery.h
+  UpdateInstall.cpp
+  UpdateInstall.h
   Enums.h
   ExitCodes.h
   Hotkey.cpp

@@ -7,6 +7,7 @@
  */
 
 #include "CoreArgParser.h"
+#include "UpdateHelper.h"
 
 #include "arch/Arch.h"
 #include "base/EventQueue.h"
@@ -14,6 +15,7 @@
 #include "common/Constants.h"
 #include "common/CoreRecovery.h"
 #include "common/ExitCodes.h"
+#include "common/UpdateInstall.h"
 #include "common/VersionInfo.h"
 #include "deskflow/ClientApp.h"
 #include "deskflow/ServerApp.h"
@@ -96,6 +98,10 @@ App *createApp(const CoreArgParser &parser, EventQueue &events, const QString &p
 
 int main(int argc, char **argv)
 {
+  // hidden update install mode, handled before anything else starts
+  if (argc >= 2 && QString::fromLocal8Bit(argv[1]) == deskflow::update_install::kInstallUpdateOption)
+    return runInstallUpdateHelper(argc, argv);
+
 #if defined(Q_OS_WIN)
   ArchMiscWindows::setInstanceWin32(GetModuleHandle(nullptr));
 #endif
