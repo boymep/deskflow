@@ -43,18 +43,26 @@ printf '[Paths]\nPlugins = PlugIns\nImports = Resources/qml\nQml2Imports = Resou
 # Sign and verify
 xattr -cr dist/Deskflow.app
 # Stable self-signed identity keeps the designated requirement (and TCC grants) the same across builds.
-# Create it once with packaging/personal/create-signing-cert.sh. DESKFLOW_ADHOC_SIGN=1 falls back to ad-hoc.
-# The bundle id (org.deskflow.deskflow) comes from Info.plist, so the code identifier stays stable.
-SIGN_IDENTITY="${DESKFLOW_SIGN_IDENTITY:-Deskflow Self-Signed}"
-if [ "${DESKFLOW_ADHOC_SIGN:-0}" = 1 ]; then
-  codesign --force --deep --sign - dist/Deskflow.app
-else
-  if ! security find-identity -v -p codesigning | grep -qF "\"$SIGN_IDENTITY\""; then
-    echo "ERROR: code-signing identity \"$SIGN_IDENTITY\" not found. Run packaging/personal/create-signing-cert.sh once (or set DESKFLOW_ADHOC_SIGN=1)." >&2
-    exit 1
-  fi
-  codesign --force --deep --sign "$SIGN_IDENTITY" --timestamp=none dist/Deskflow.app
+# Create it once with packaging/personal/setup-signing.sh. The bundle id (org.deskflow.deskflow) comes from
+# Info.plist, so the code identifier stays stable. Hardened runtime is off: see HARDENED below.
+SIGN_NAME="Deskflow Personal Signing"
+SIGN_KC="$HOME/Library/Keychains/deskflow-signing.keychain-db"
+SIGN_PWFILE="$HOME/.config/deskflow-signing/keychain-password"
+if [ ! -f "$SIGN_KC" ] || [ ! -f "$SIGN_PWFILE" ]; then
+  echo "ERROR: signing keychain or password file is missing. Run packaging/personal/setup-signing.sh" >&2; exit 1
 fi
+security unlock-keychain -p "$(cat "$SIGN_PWFILE")" "$SIGN_KC"
+SIGN_HASH=$(security find-certificate -c "$SIGN_NAME" -Z "$SIGN_KC" 2>/dev/null | awk '/^SHA-1 hash:/{print $3; exit}')
+if [ -z "$SIGN_HASH" ]; then
+  echo "ERROR: identity \"$SIGN_NAME\" not found in $SIGN_KC. Run packaging/personal/setup-signing.sh" >&2; exit 1
+fi
+HARDENED=()                                     # set to (--options runtime) to enable the hardened runtime
+sign() { codesign --force --sign "$SIGN_HASH" --keychain "$SIGN_KC" --timestamp=none ${HARDENED[@]+"${HARDENED[@]}"} "$@"; }
+# Inside-out: dylibs and plugins, then frameworks, then the executables, then the bundle
+find $C -type f \( -name '*.dylib' -o -name '*.so' \) -print0 | while IFS= read -r -d '' f; do sign "$f"; done
+for fw in $C/Frameworks/*.framework; do sign "$fw"; done
+sign $C/MacOS/deskflow-core
+sign dist/Deskflow.app
 codesign --verify --deep --strict --verbose=2 dist/Deskflow.app
 codesign -d -r- dist/Deskflow.app
 # Offending absolute refs (must be 0)
