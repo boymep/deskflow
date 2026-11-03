@@ -156,10 +156,10 @@ bool switcherSpaceWindowPlausible(const SwitcherSpaceWindow &window, const std::
          std::find(allowed.begin(), allowed.end(), window.pid) != allowed.end();
 }
 
-std::vector<size_t> selectOtherSpaceWindows(
+std::vector<size_t> selectSwitcherDesktopWindows(
     const std::vector<SwitcherSpaceWindow> &windows, const std::vector<SwitcherPid> &allowed,
-    const std::vector<SwitcherWindowId> &known, const std::vector<uint64_t> &userSpaces,
-    const std::vector<uint64_t> &visibleSpaces, size_t limit
+    const std::vector<uint64_t> &desktopSpaces, const std::vector<uint64_t> &visibleSpaces,
+    const std::vector<SwitcherWindowId> &axSwitchable, const std::vector<SwitcherPid> &axAnswered, size_t limit
 )
 {
   const auto contains = [](const auto &list, const auto &value) {
@@ -169,16 +169,18 @@ std::vector<size_t> selectOtherSpaceWindows(
   std::vector<SwitcherWindowId> taken;
   for (size_t i = 0; i < windows.size() && selected.size() < limit; ++i) {
     const auto &w = windows[i];
-    if (!switcherSpaceWindowPlausible(w, allowed) || w.spaces.empty() || contains(known, w.windowId) ||
-        contains(taken, w.windowId)) {
+    if (!switcherSpaceWindowPlausible(w, allowed) || !w.orderedIn || w.spaces.empty() || contains(taken, w.windowId)) {
       continue;
     }
     bool keep = true;
+    bool visible = false;
     for (const auto space : w.spaces) {
-      if (!contains(userSpaces, space) || contains(visibleSpaces, space)) {
-        keep = false;
-        break;
-      }
+      keep = keep && contains(desktopSpaces, space);
+      visible = visible || contains(visibleSpaces, space);
+    }
+    // Accessibility knows the windows of the visible Spaces: trust it about them
+    if (keep && visible && contains(axAnswered, w.pid) && !contains(axSwitchable, w.windowId)) {
+      keep = false;
     }
     if (keep) {
       selected.push_back(i);
@@ -316,33 +318,127 @@ std::vector<size_t> switcherCaptureOrder(size_t count, size_t selection, size_t 
   return order;
 }
 
-std::vector<SwitcherDesktop> switcherEmptyDesktops(
-    const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current, const std::vector<uint64_t> &occupied
-)
+std::vector<SwitcherStripItem> switcherSpaceStrip(const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current)
 {
-  std::vector<SwitcherDesktop> result;
-  const auto currentIt = std::find_if(spaces.begin(), spaces.end(), [&](const auto &s) { return s.id == current; });
-  if (currentIt == spaces.end()) {
-    return result;
-  }
-  const auto currentPos = currentIt - spaces.begin();
-  int number = 0;
-  for (auto it = spaces.begin(); it != spaces.end(); ++it) {
-    if (!it->desktop) {
+  std::vector<SwitcherStripItem> strip;
+  int desktops = 0;
+  for (const auto &space : spaces) {
+    if (space.kind == SwitcherSpaceKind::Other || space.id == 0) {
       continue;
     }
-    ++number;
-    if (it->id == current || std::find(occupied.begin(), occupied.end(), it->id) != occupied.end()) {
-      continue;
+    SwitcherStripItem item;
+    item.spaceId = space.id;
+    item.kind = space.kind;
+    item.current = space.id == current;
+    if (space.kind == SwitcherSpaceKind::Desktop) {
+      item.number = ++desktops;
+    } else {
+      item.tiles = space.tiles;
     }
-    result.push_back(SwitcherDesktop{it->id, number, static_cast<int>((it - spaces.begin()) - currentPos)});
+    strip.push_back(std::move(item));
   }
-  return result;
+  const auto currentIt = std::find_if(strip.begin(), strip.end(), [](const auto &item) { return item.current; });
+  if (currentIt == strip.end()) {
+    return {};
+  }
+  const auto currentPos = static_cast<int>(currentIt - strip.begin());
+  for (size_t i = 0; i < strip.size(); ++i) {
+    strip[i].steps = static_cast<int>(i) - currentPos;
+    if (desktops == 1) {
+      strip[i].number = 0; // a single desktop has no number in Mission Control
+    }
+  }
+  return strip;
+}
+
+std::vector<std::string> switcherFullscreenTitles(const std::vector<std::vector<SwitcherTileName>> &spaces)
+{
+  // apps with windows in several fullscreen Spaces are told apart by their window titles
+  std::vector<std::pair<SwitcherPid, int>> spacesPerApp;
+  for (const auto &tiles : spaces) {
+    std::vector<SwitcherPid> seen;
+    for (const auto &tile : tiles) {
+      if (std::find(seen.begin(), seen.end(), tile.pid) != seen.end()) {
+        continue;
+      }
+      seen.push_back(tile.pid);
+      const auto it = std::find_if(spacesPerApp.begin(), spacesPerApp.end(), [&](const auto &e) {
+        return e.first == tile.pid;
+      });
+      if (it == spacesPerApp.end()) {
+        spacesPerApp.emplace_back(tile.pid, 1);
+      } else {
+        ++it->second;
+      }
+    }
+  }
+  std::vector<std::string> titles;
+  titles.reserve(spaces.size());
+  for (const auto &tiles : spaces) {
+    std::string title;
+    for (const auto &tile : tiles) {
+      const auto it = std::find_if(spacesPerApp.begin(), spacesPerApp.end(), [&](const auto &e) {
+        return e.first == tile.pid;
+      });
+      const bool shared = it != spacesPerApp.end() && it->second > 1;
+      const std::string &name = shared && !tile.windowTitle.empty() ? tile.windowTitle : tile.appName;
+      if (!title.empty()) {
+        title += " & ";
+      }
+      title += name;
+    }
+    titles.push_back(std::move(title));
+  }
+  return titles;
 }
 
 std::string switcherDesktopTitle(int number)
 {
+  if (number <= 0) {
+    return QCoreApplication::translate("OSXWindowSwitcher", "Desktop").toStdString();
+  }
   return QCoreApplication::translate("OSXWindowSwitcher", "Desktop %1").arg(number).toStdString();
+}
+
+std::string switcherCurrentSpaceLabel()
+{
+  return QCoreApplication::translate("OSXWindowSwitcher", "Current").toStdString();
+}
+
+size_t switcherInitialSelection(const std::vector<SwitcherSelectable> &items, bool reverse)
+{
+  if (items.empty()) {
+    return 0;
+  }
+  if (reverse) {
+    return items.size() - 1;
+  }
+  std::optional<size_t> best;
+  for (size_t i = 0; i < items.size(); ++i) {
+    if (!items[i].current && items[i].rank.has_value() && (!best || *items[i].rank < *items[*best].rank)) {
+      best = i;
+    }
+  }
+  if (best) {
+    return *best;
+  }
+  for (size_t i = 0; i < items.size(); ++i) {
+    if (items[i].window && !items[i].current) {
+      return i;
+    }
+  }
+  // only Spaces (and maybe the current window): the one after the current Space
+  for (size_t i = 0; i < items.size(); ++i) {
+    if (!items[i].window && items[i].current) {
+      for (size_t k = 1; k < items.size(); ++k) {
+        const size_t next = (i + k) % items.size();
+        if (!items[next].current) {
+          return next;
+        }
+      }
+    }
+  }
+  return 0;
 }
 
 } // namespace deskflow::osx

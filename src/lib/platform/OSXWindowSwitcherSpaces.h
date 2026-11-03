@@ -10,6 +10,7 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -25,37 +26,45 @@ behaviour. Window titles are never logged.
 
 namespace deskflow::osx {
 
-//! A window on a Space that is not shown right now.
+//! A window of the switcher's window grid as listed by the window server.
 struct SwitcherSpaceWindowInfo
 {
   SwitcherWindowId windowId = 0;
   SwitcherPid pid = 0;
   std::string title; //!< UTF-8 window server title; empty without the Screen Recording permission
   SwitcherRect frame;
+  bool visible = false; //!< on a Space shown right now
+};
+
+//! Spaces and desktop windows, as Mission Control shows them.
+struct SwitcherSpacesSnapshot
+{
+  bool valid = false; //!< false: Spaces unknown, list the windows Accessibility reports instead
+  std::vector<SwitcherStripItem> strip;          //!< Spaces of the display asked for, Mission Control order
+  std::vector<SwitcherSpaceWindowInfo> windows;  //!< grid windows of all displays, front to back
+  std::map<SwitcherWindowId, std::string> tileTitles; //!< window server titles of fullscreen windows, if known
 };
 
 //! True if an Accessibility window with \p role, \p subrole and \p title belongs in the switcher.
 bool switcherIsSwitchableAXWindow(NSString *_Nullable role, NSString *_Nullable subrole, NSString *_Nullable title);
 
-//! True if windows on other Spaces can be listed and activated (all private calls found). Thread safe.
+//! True if Spaces can be listed and windows on other Spaces activated (all private calls found). Thread safe.
 bool switcherSpacesAvailable();
 
-//! Windows of \p allowed processes on other Spaces that are not in \p known, front to back, at most \p limit.
+//! The Spaces strip of display \p displayId (CGDirectDisplayID) and the windows of the grid.
 /*!
-Fast (a few window server calls); empty if switcherSpacesAvailable() is false
-or a call fails.
+Main thread. Windows are those of \p allowed processes chosen by selectSwitcherDesktopWindows
+(\p axSwitchable and \p axAnswered come from the Accessibility listing of the visible Spaces),
+at most \p limit. One or two window server calls per window; invalid if switcherSpacesAvailable()
+is false or a call fails.
 */
-std::vector<SwitcherSpaceWindowInfo> switcherOtherSpaceWindows(
-    const std::vector<SwitcherWindowId> &known, const std::vector<SwitcherPid> &allowed, size_t limit
+SwitcherSpacesSnapshot switcherSpacesSnapshot(
+    uint32_t displayId, const std::vector<SwitcherPid> &allowed, const std::vector<SwitcherWindowId> &axSwitchable,
+    const std::vector<SwitcherPid> &axAnswered, size_t limit
 );
 
-//! Empty desktops of the display \p displayId (CGDirectDisplayID) except its current Space, in Mission Control order.
-/*!
-A desktop is empty if none of the plausible user windows of \p allowed processes is on it (windows on all
-desktops do not count). Slow-ish (one window server call per window); empty if switcherSpacesAvailable()
-is false, the display is unknown or a call fails.
-*/
-std::vector<SwitcherDesktop> switcherEmptyDesktopsOnDisplay(uint32_t displayId, const std::vector<SwitcherPid> &allowed);
+//! Windows of the fullscreen Spaces shown right now (all displays); empty if none or unknown.
+std::vector<SwitcherTile> switcherVisibleFullscreenWindows();
 
 //! Switches the display under the mouse pointer by \p steps desktops (positive: right) with Control+Arrow.
 /*!
@@ -94,6 +103,8 @@ and results are cached per window id until the window disappears.
 - (nullable DeskflowSwitcherRemoteWindow *)cachedWindow:(uint32_t)windowId;
 //! True if \p windowId turned out not to be a standard window; it should not be listed.
 - (BOOL)isRejected:(uint32_t)windowId;
+//! Marks \p windowIds as not standard windows (Accessibility listed them on a visible Space).
+- (void)reject:(const std::vector<deskflow::osx::SwitcherWindowId> &)windowIds;
 //! Forgets every window not in \p alive.
 - (void)retainWindows:(const std::vector<deskflow::osx::SwitcherWindowId> &)alive;
 //! Searches the windows in \p wanted (pid, window id) that are not cached yet; \p found runs on the main

@@ -166,25 +166,49 @@ void OSXWindowSwitcherModelTests::spaceWindowPlausible()
   QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
 }
 
-void OSXWindowSwitcherModelTests::selectOtherSpaces()
+void OSXWindowSwitcherModelTests::selectDesktopWindows()
 {
   const SwitcherRect frame{0, 0, 800, 600};
-  const std::vector<SwitcherSpaceWindow> w = {
+  // desktops 1 (visible) and 2, fullscreen Space 4, system Space 99
+  std::vector<SwitcherSpaceWindow> w = {
       {1, 7, 0, 1.0, frame, {2}},    // other desktop: kept
-      {2, 7, 0, 1.0, frame, {1}},    // visible Space, not reported by Accessibility: dropped
-      {3, 7, 0, 1.0, frame, {4}},    // fullscreen Space: kept
+      {2, 7, 0, 1.0, frame, {1}},    // visible desktop, listed by Accessibility: kept
+      {3, 7, 0, 1.0, frame, {4}},    // fullscreen Space (shown by the strip): dropped
       {4, 7, 0, 1.0, frame, {}},     // no Space: dropped
       {5, 7, 0, 1.0, frame, {99}},   // system Space: dropped
-      {6, 7, 0, 1.0, frame, {2}},    // known via Accessibility: dropped
+      {6, 7, 0, 1.0, frame, {2}},    // ordered out (app closed it to the menu bar): dropped
       {1, 7, 0, 1.0, frame, {2}},    // duplicate: dropped
-      {7, 7, 0, 1.0, frame, {2, 1}}, // also on the visible Space: dropped
+      {7, 7, 0, 1.0, frame, {1}},    // visible, Accessibility answered but did not list it: dropped
       {8, 9, 0, 1.0, frame, {2}},    // process not allowed: dropped
-      {9, 7, 0, 1.0, frame, {2, 4}}, // kept
+      {9, 7, 0, 1.0, frame, {2, 1}}, // on all desktops, listed by Accessibility: kept
+      {10, 5, 0, 1.0, frame, {1}},   // visible, Accessibility did not answer for the app: kept
   };
-  const std::vector<uint64_t> user = {1, 2, 4};
-  QCOMPARE(selectOtherSpaceWindows(w, {7}, {6}, user, {1}, 10), (std::vector<size_t>{0, 2, 9}));
-  QCOMPARE(selectOtherSpaceWindows(w, {7}, {6}, user, {1}, 2), (std::vector<size_t>{0, 2}));
-  QVERIFY(selectOtherSpaceWindows(w, {7}, {6}, user, {1}, 0).empty());
+  w[5].orderedIn = false;
+  const std::vector<uint64_t> desktops = {1, 2};
+  const std::vector<SwitcherWindowId> axSwitchable = {2, 9};
+  const std::vector<SwitcherPid> axAnswered = {7};
+  QCOMPARE(
+      selectSwitcherDesktopWindows(w, {7, 5}, desktops, {1}, axSwitchable, axAnswered, 10),
+      (std::vector<size_t>{0, 1, 9, 10})
+  );
+  QCOMPARE(
+      selectSwitcherDesktopWindows(w, {7, 5}, desktops, {1}, axSwitchable, axAnswered, 2), (std::vector<size_t>{0, 1})
+  );
+  QVERIFY(selectSwitcherDesktopWindows(w, {7, 5}, desktops, {1}, axSwitchable, axAnswered, 0).empty());
+}
+
+void OSXWindowSwitcherModelTests::desktopWindowsSameFromEverySpace()
+{
+  // the same windows, once seen from desktop 1 and once from fullscreen Space 4: same grid set
+  const SwitcherRect frame{0, 0, 800, 600};
+  const std::vector<SwitcherSpaceWindow> w = {
+      {1, 7, 0, 1.0, frame, {1}}, {2, 7, 0, 1.0, frame, {2}}, {3, 8, 0, 1.0, frame, {4}}, {4, 8, 0, 1.0, frame, {1}}
+  };
+  const std::vector<uint64_t> desktops = {1, 2};
+  const auto fromDesktop = selectSwitcherDesktopWindows(w, {7, 8}, desktops, {1}, {1, 4}, {7, 8}, 10);
+  const auto fromFullscreen = selectSwitcherDesktopWindows(w, {7, 8}, desktops, {4}, {3}, {8}, 10);
+  QCOMPARE(fromDesktop, (std::vector<size_t>{0, 1, 3}));
+  QCOMPARE(fromFullscreen, fromDesktop);
 }
 
 void OSXWindowSwitcherModelTests::remoteToken()
@@ -324,50 +348,115 @@ void OSXWindowSwitcherModelTests::captureOrder()
   QCOMPARE(switcherCaptureOrder(3, 9, 30), (std::vector<size_t>{2, 0, 1}));
 }
 
-void OSXWindowSwitcherModelTests::emptyDesktops()
+void OSXWindowSwitcherModelTests::spaceStrip()
 {
-  // desktops 1..4 with ids 10..13; current is the second; windows on 10 and 12
-  const std::vector<SwitcherSpaceEntry> spaces{{10, true}, {11, true}, {12, true}, {13, true}};
-  const auto result = switcherEmptyDesktops(spaces, 11, {10, 12});
-  QCOMPARE(result.size(), size_t(1));
-  QCOMPARE(result[0].spaceId, uint64_t(13));
-  QCOMPARE(result[0].number, 4);
-  QCOMPARE(result[0].steps, 2);
-
-  // the current desktop is never offered, empty or not; empty ones before it go left
-  const auto all = switcherEmptyDesktops(spaces, 12, {});
-  QCOMPARE(all.size(), size_t(3));
-  QCOMPARE(all[0].number, 1);
-  QCOMPARE(all[0].steps, -2);
-  QCOMPARE(all[1].number, 2);
-  QCOMPARE(all[1].steps, -1);
-  QCOMPARE(all[2].number, 4);
-  QCOMPARE(all[2].steps, 1);
-
-  QVERIFY(switcherEmptyDesktops(spaces, 10, {11, 12, 13}).empty());
+  // like Mission Control: desktop 1, fullscreen app, desktop 2, a system Space, split view
+  const std::vector<SwitcherSpaceEntry> spaces{
+      {10, SwitcherSpaceKind::Desktop, {}},
+      {11, SwitcherSpaceKind::Fullscreen, {{7, 100}}},
+      {12, SwitcherSpaceKind::Desktop, {}},
+      {13, SwitcherSpaceKind::Other, {}},
+      {14, SwitcherSpaceKind::Fullscreen, {{7, 101}, {8, 102}}},
+  };
+  const auto strip = switcherSpaceStrip(spaces, 12);
+  QCOMPARE(strip.size(), size_t(4));
+  QCOMPARE(strip[0].spaceId, uint64_t(10));
+  QCOMPARE(strip[0].number, 1);
+  QCOMPARE(strip[0].steps, -2);
+  QVERIFY(!strip[0].current);
+  QCOMPARE(strip[1].kind, SwitcherSpaceKind::Fullscreen);
+  QCOMPARE(strip[1].number, 0);
+  QCOMPARE(strip[1].steps, -1);
+  QCOMPARE(strip[1].tiles.size(), size_t(1));
+  QCOMPARE(strip[1].tiles[0].windowId, SwitcherWindowId(100));
+  QCOMPARE(strip[2].number, 2);
+  QCOMPARE(strip[2].steps, 0);
+  QVERIFY(strip[2].current);
+  QCOMPARE(strip[3].spaceId, uint64_t(14)); // the system Space is neither shown nor a step
+  QCOMPARE(strip[3].steps, 1);
+  QCOMPARE(strip[3].tiles.size(), size_t(2));
 }
 
-void OSXWindowSwitcherModelTests::emptyDesktopsSkipsFullscreenNumbers()
+void OSXWindowSwitcherModelTests::spaceStripSingleDesktop()
 {
-  // a fullscreen app Space is not numbered but is a step for Control+Arrow
-  const std::vector<SwitcherSpaceEntry> spaces{{1, true}, {2, false}, {3, true}, {4, true}};
-  const auto result = switcherEmptyDesktops(spaces, 1, {4});
-  QCOMPARE(result.size(), size_t(1));
-  QCOMPARE(result[0].spaceId, uint64_t(3));
-  QCOMPARE(result[0].number, 2);
-  QCOMPARE(result[0].steps, 2);
+  // one desktop and three fullscreen Spaces, the current one fullscreen: the desktop has no number
+  const std::vector<SwitcherSpaceEntry> spaces{
+      {1, SwitcherSpaceKind::Desktop, {}},
+      {1143, SwitcherSpaceKind::Fullscreen, {{5, 22992}}},
+      {1155, SwitcherSpaceKind::Fullscreen, {{5, 21590}}},
+      {1149, SwitcherSpaceKind::Fullscreen, {{6, 737}}},
+  };
+  const auto strip = switcherSpaceStrip(spaces, 1143);
+  QCOMPARE(strip.size(), size_t(4));
+  QCOMPARE(strip[0].number, 0);
+  QCOMPARE(strip[0].steps, -1);
+  QVERIFY(strip[1].current);
+  QCOMPARE(strip[3].steps, 2);
 }
 
-void OSXWindowSwitcherModelTests::emptyDesktopsUnknownCurrent()
+void OSXWindowSwitcherModelTests::spaceStripUnknownCurrent()
 {
-  const std::vector<SwitcherSpaceEntry> spaces{{1, true}, {2, true}};
-  QVERIFY(switcherEmptyDesktops(spaces, 99, {}).empty());
-  QVERIFY(switcherEmptyDesktops({}, 1, {}).empty());
+  const std::vector<SwitcherSpaceEntry> spaces{{1, SwitcherSpaceKind::Desktop, {}}, {2, SwitcherSpaceKind::Other, {}}};
+  QVERIFY(switcherSpaceStrip(spaces, 99).empty());
+  QVERIFY(switcherSpaceStrip(spaces, 2).empty()); // a system Space has no place in the strip
+  QVERIFY(switcherSpaceStrip({}, 1).empty());
+}
+
+void OSXWindowSwitcherModelTests::fullscreenTitles()
+{
+  // two Spaces of the same app go by window title, a single one by app name, split views join
+  const std::vector<std::vector<SwitcherTileName>> spaces{
+      {{5, "Code", "Keyboard switching"}},
+      {{5, "Code", "ORBIT-220 — moex"}},
+      {{6, "Google Chrome", "New Tab"}},
+      {{7, "Notes", ""}, {8, "Safari", "Apple"}},
+      {{9, "Mail", ""}},
+      {{9, "Mail", ""}}, // title unknown: app name
+  };
+  QCOMPARE(
+      switcherFullscreenTitles(spaces), (std::vector<std::string>{
+                                            "Keyboard switching", "ORBIT-220 — moex", "Google Chrome",
+                                            "Notes & Safari", "Mail", "Mail"
+                                        })
+  );
+  QVERIFY(switcherFullscreenTitles({}).empty());
+}
+
+void OSXWindowSwitcherModelTests::initialSelectionMostRecent()
+{
+  using S = SwitcherSelectable;
+  // strip: desktop, current fullscreen (rank 0), fullscreen (rank 2); windows: rank 1, rank 3
+  std::vector<S> items{
+      {std::nullopt, false, false}, {0, true, false}, {2, false, false}, {1, false, true}, {3, false, true}
+  };
+  QCOMPARE(switcherInitialSelection(items, false), size_t(3));
+  QCOMPARE(switcherInitialSelection(items, true), size_t(4));
+  // the previous fullscreen app was used more recently than any window
+  items[2].rank = 1;
+  items[3].rank = 2;
+  QCOMPARE(switcherInitialSelection(items, false), size_t(2));
+}
+
+void OSXWindowSwitcherModelTests::initialSelectionFallbacks()
+{
+  using S = SwitcherSelectable;
+  // no ranks: the first window that is not current (the previous window on a desktop)
+  const std::vector<S> desktop{
+      {std::nullopt, true, false}, {std::nullopt, false, false}, {std::nullopt, true, true}, {std::nullopt, false, true}
+  };
+  QCOMPARE(switcherInitialSelection(desktop, false), size_t(3));
+  // only Spaces: the one after the current, wrapping
+  const std::vector<S> strip{{std::nullopt, false, false}, {std::nullopt, false, false}, {std::nullopt, true, false}};
+  QCOMPARE(switcherInitialSelection(strip, false), size_t(0));
+  QCOMPARE(switcherInitialSelection(std::vector<S>{{std::nullopt, true, false}}, false), size_t(0));
+  QCOMPARE(switcherInitialSelection(std::vector<S>{}, false), size_t(0));
 }
 
 void OSXWindowSwitcherModelTests::desktopTitle()
 {
   QCOMPARE(QString::fromStdString(switcherDesktopTitle(3)), QStringLiteral("Desktop 3"));
+  QCOMPARE(QString::fromStdString(switcherDesktopTitle(0)), QStringLiteral("Desktop"));
+  QCOMPARE(QString::fromStdString(switcherCurrentSpaceLabel()), QStringLiteral("Current"));
 }
 
 void OSXWindowSwitcherModelTests::lruBoundedAndRecent()

@@ -12,6 +12,7 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <dispatch/dispatch.h>
 
+#include <algorithm>
 #include <deque>
 #include <memory>
 #include <vector>
@@ -40,6 +41,7 @@ constexpr int kMaxConcurrentCaptures = 3;    // screenshots in flight at once
 constexpr int kMaxPixelWidth = 400;          // per thumbnail
 constexpr size_t kCacheEntries = 40;         // last thumbnails kept (about 400 KB each at most)
 constexpr int64_t kCacheLifetimeSeconds = 300; // cache dropped this long after the switcher closes
+constexpr size_t kSpaceCacheEntries = 16;    // fullscreen Space windows, kept while they exist
 
 SwitcherRect rectOf(CGRect r)
 {
@@ -60,6 +62,7 @@ struct DeskflowCaptureJob
 
 @implementation DeskflowSwitcherThumbnailer {
   std::unique_ptr<SwitcherLru<SwitcherWindowId, NSImage *>> _cache;
+  std::unique_ptr<SwitcherLru<SwitcherWindowId, NSImage *>> _spaceCache;
   NSArray<DeskflowSwitcherItem *> *_items;
   void (^_updated)(NSUInteger);
   CGFloat _scale;
@@ -88,6 +91,7 @@ struct DeskflowCaptureJob
 {
   if ((self = [super init])) {
     _cache = std::make_unique<SwitcherLru<SwitcherWindowId, NSImage *>>(kCacheEntries);
+    _spaceCache = std::make_unique<SwitcherLru<SwitcherWindowId, NSImage *>>(kSpaceCacheEntries);
     _items = @[];
     _wallpapers = [NSMutableDictionary dictionary];
   }
@@ -102,6 +106,8 @@ struct DeskflowCaptureJob
     }
     if (NSImage *const *cached = _cache->find(item.windowId); cached != nullptr) {
       item.thumbnail = *cached;
+    } else if (NSImage *const *kept = _spaceCache->find(item.windowId); kept != nullptr) {
+      item.thumbnail = *kept;
     }
   }
 }
@@ -158,6 +164,74 @@ static NSString *wallpaperKey(NSURL *url, CGFloat scale)
     });
   });
 }
+
+- (void)rememberWindows:(const std::vector<uint32_t> &)windowIds
+{
+  if (windowIds.empty() || ![DeskflowSwitcherThumbnailer available]) {
+    return;
+  }
+#if DESKFLOW_SWITCHER_SCK
+  if (@available(macOS 14.0, *)) {
+    const std::vector<uint32_t> wanted = windowIds;
+    const CGFloat scale = _scale > 0 ? _scale : 2.0;
+    __weak DeskflowSwitcherThumbnailer *weakSelf = self;
+    [SCShareableContent getShareableContentExcludingDesktopWindows:YES
+                                               onScreenWindowsOnly:YES
+                                                 completionHandler:^(SCShareableContent *content, NSError *) {
+                                                   for (SCWindow *window in content.windows) {
+                                                     if (std::find(wanted.begin(), wanted.end(), window.windowID) !=
+                                                         wanted.end()) {
+                                                       [weakSelf rememberWindow:window scale:scale];
+                                                     }
+                                                   }
+                                                 }];
+  }
+#endif
+}
+
+#if DESKFLOW_SWITCHER_SCK
+//! Any thread. Captures \p window into the Space cache.
+- (void)rememberWindow:(SCWindow *)window scale:(CGFloat)scale API_AVAILABLE(macos(14.0))
+{
+  SCContentFilter *filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
+  CGRect content = filter.contentRect;
+  if (CGRectIsEmpty(content)) {
+    content = window.frame;
+  }
+  const NSSize box = [DeskflowSwitcherPanel thumbnailBoxSize];
+  const auto size =
+      deskflow::osx::switcherThumbnailSize(rectOf(content), {0, 0, box.width, box.height}, scale, kMaxPixelWidth);
+  if (size.width == 0 || size.height == 0) {
+    return;
+  }
+  SCStreamConfiguration *config = [SCStreamConfiguration new];
+  config.width = static_cast<size_t>(size.width);
+  config.height = static_cast<size_t>(size.height);
+  config.scalesToFit = YES;
+  config.preservesAspectRatio = YES;
+  config.showsCursor = NO;
+  config.ignoreShadowsSingleWindow = YES;
+  config.capturesAudio = NO;
+  const SwitcherWindowId windowId = window.windowID;
+  const NSSize points = NSMakeSize(size.width / scale, size.height / scale);
+  __weak DeskflowSwitcherThumbnailer *weakSelf = self;
+  [SCScreenshotManager captureImageWithFilter:filter
+                                configuration:config
+                            completionHandler:^(CGImageRef image, NSError *) {
+                              NSImage *thumbnail =
+                                  image != nullptr ? [[NSImage alloc] initWithCGImage:image size:points] : nil;
+                              if (thumbnail == nil) {
+                                return;
+                              }
+                              dispatch_async(dispatch_get_main_queue(), ^{
+                                DeskflowSwitcherThumbnailer *strongSelf = weakSelf;
+                                if (strongSelf != nil) {
+                                  strongSelf->_spaceCache->put(windowId, thumbnail);
+                                }
+                              });
+                            }];
+}
+#endif
 
 - (void)startForItems:(NSArray<DeskflowSwitcherItem *> *)items
             selection:(NSUInteger)selection
@@ -337,6 +411,9 @@ static NSString *wallpaperKey(NSURL *url, CGFloat scale)
     return; // the switcher closed or reopened meanwhile
   }
   if (thumbnail != nil && index < _items.count) {
+    if (_items[index].space) {
+      _spaceCache->put(windowId, thumbnail);
+    }
     _items[index].thumbnail = thumbnail;
     if (_updated != nil) {
       _updated(index);

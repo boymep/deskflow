@@ -21,6 +21,9 @@
 #endif
 
 using deskflow::osx::SwitcherPid;
+using deskflow::osx::SwitcherSpaceEntry;
+using deskflow::osx::SwitcherSpaceKind;
+using deskflow::osx::SwitcherTile;
 using deskflow::osx::SwitcherWindowId;
 
 namespace {
@@ -35,12 +38,13 @@ using CreateWithRemoteTokenFn = AXUIElementRef (*)(CFDataRef);
 using SetFrontProcessFn = CGError (*)(ProcessSerialNumber *, uint32_t windowId, uint32_t mode);
 using PostEventRecordFn = CGError (*)(ProcessSerialNumber *, uint8_t *record);
 using GetProcessForPidFn = OSStatus (*)(pid_t, ProcessSerialNumber *);
+using WindowIsOrderedInFn = CGError (*)(int32_t connection, uint32_t windowId, bool *orderedIn);
 
 constexpr int32_t kAllSpacesMask = 0x7;        // current, other and user Spaces
 constexpr int kUserSpaceType = 0;              // a Mission Control desktop
 constexpr int kFullscreenSpaceType = 4;        // a fullscreen (or split view) app
 constexpr uint32_t kUserGeneratedMode = 0x200; // front process change on behalf of the user
-constexpr size_t kMaxSpaceQueries = 300;       // windows whose Spaces are looked up per open
+constexpr size_t kMaxSpaceQueries = 300;       // plausible windows looked up per open
 
 void *lookup(std::initializer_list<const char *> names)
 {
@@ -72,6 +76,8 @@ struct Spi
       reinterpret_cast<CreateWithRemoteTokenFn>(lookup({"_AXUIElementCreateWithRemoteToken"}));
   SetFrontProcessFn setFrontProcess = reinterpret_cast<SetFrontProcessFn>(lookup({"_SLPSSetFrontProcessWithOptions"}));
   PostEventRecordFn postEventRecord = reinterpret_cast<PostEventRecordFn>(lookup({"SLPSPostEventRecordTo"}));
+  // optional: without it, windows an app keeps ordered out (closed to the menu bar) are listed too
+  WindowIsOrderedInFn windowIsOrderedIn = reinterpret_cast<WindowIsOrderedInFn>(lookup({"SLSWindowIsOrderedIn"}));
   // deprecated public call, looked up to keep the build free of deprecation warnings
   GetProcessForPidFn getProcessForPid = reinterpret_cast<GetProcessForPidFn>(lookup({"GetProcessForPID"}));
 
@@ -106,40 +112,74 @@ uint64_t spaceIdOf(NSDictionary *space)
   return managed != 0 ? managed : numberValue(space[@"id64"]);
 }
 
-//! Desktop and fullscreen Spaces of all displays, and the Spaces shown right now. False on failure.
-bool readSpaces(int32_t connection, std::vector<uint64_t> &userSpaces, std::vector<uint64_t> &visibleSpaces)
+SwitcherSpaceKind kindOf(NSDictionary *space)
+{
+  switch (static_cast<int>(numberValue(space[@"type"]))) {
+  case kUserSpaceType:
+    return SwitcherSpaceKind::Desktop;
+  case kFullscreenSpaceType:
+    return SwitcherSpaceKind::Fullscreen;
+  default:
+    return SwitcherSpaceKind::Other;
+  }
+}
+
+//! Windows of a fullscreen Space: its tiles (split view), else its single window.
+std::vector<SwitcherTile> tilesOf(NSDictionary *space)
+{
+  std::vector<SwitcherTile> tiles;
+  NSDictionary *layout = space[@"TileLayoutManager"];
+  NSArray *tileSpaces = [layout isKindOfClass:[NSDictionary class]] ? layout[@"TileSpaces"] : nil;
+  if ([tileSpaces isKindOfClass:[NSArray class]]) {
+    for (NSDictionary *tile in tileSpaces) {
+      if (![tile isKindOfClass:[NSDictionary class]]) {
+        continue;
+      }
+      const auto windowId = static_cast<SwitcherWindowId>(numberValue(tile[@"TileWindowID"]));
+      if (windowId != 0) {
+        tiles.push_back(SwitcherTile{static_cast<SwitcherPid>(numberValue(tile[@"pid"])), windowId});
+      }
+    }
+  }
+  if (tiles.empty()) {
+    if (const auto windowId = static_cast<SwitcherWindowId>(numberValue(space[@"fs_wid"])); windowId != 0) {
+      tiles.push_back(SwitcherTile{static_cast<SwitcherPid>(numberValue(space[@"pid"])), windowId});
+    }
+  }
+  return tiles;
+}
+
+//! Spaces of one managed display in Mission Control order.
+std::vector<SwitcherSpaceEntry> entriesOf(NSDictionary *display)
+{
+  std::vector<SwitcherSpaceEntry> entries;
+  NSArray *spaces = [display isKindOfClass:[NSDictionary class]] ? display[@"Spaces"] : nil;
+  if (![spaces isKindOfClass:[NSArray class]]) {
+    return entries;
+  }
+  for (NSDictionary *space in spaces) {
+    const uint64_t id = spaceIdOf(space);
+    if (id == 0) {
+      continue;
+    }
+    SwitcherSpaceEntry entry{id, kindOf(space), {}};
+    if (entry.kind == SwitcherSpaceKind::Fullscreen) {
+      entry.tiles = tilesOf(space);
+    }
+    entries.push_back(std::move(entry));
+  }
+  return entries;
+}
+
+//! The managed displays (Spaces of each display), or nil on failure.
+NSArray *copyDisplays(int32_t connection)
 {
   CFArrayRef raw = spi().copyManagedDisplaySpaces(connection);
   if (raw == nullptr) {
-    return false;
+    return nil;
   }
   NSArray *displays = CFBridgingRelease(raw);
-  if (![displays isKindOfClass:[NSArray class]]) {
-    return false;
-  }
-  for (NSDictionary *display in displays) {
-    if (![display isKindOfClass:[NSDictionary class]]) {
-      continue;
-    }
-    if (const uint64_t current = spaceIdOf(display[@"Current Space"]); current != 0) {
-      visibleSpaces.push_back(current);
-    }
-    NSArray *spaces = display[@"Spaces"];
-    if (![spaces isKindOfClass:[NSArray class]]) {
-      continue;
-    }
-    for (NSDictionary *space in spaces) {
-      const uint64_t id = spaceIdOf(space);
-      if (id == 0 || ![space isKindOfClass:[NSDictionary class]]) {
-        continue;
-      }
-      const auto type = static_cast<int>(numberValue(space[@"type"]));
-      if (type == kUserSpaceType || type == kFullscreenSpaceType) {
-        userSpaces.push_back(id);
-      }
-    }
-  }
-  return !userSpaces.empty() && !visibleSpaces.empty();
+  return [displays isKindOfClass:[NSArray class]] ? displays : nil;
 }
 
 //! The managed display dictionary of \p displayId, or nil.
@@ -219,105 +259,70 @@ bool switcherSpacesAvailable()
   return spi().spaces() && spi().focus();
 }
 
-std::vector<SwitcherSpaceWindowInfo> switcherOtherSpaceWindows(
-    const std::vector<SwitcherWindowId> &known, const std::vector<SwitcherPid> &allowed, size_t limit
+SwitcherSpacesSnapshot switcherSpacesSnapshot(
+    uint32_t displayId, const std::vector<SwitcherPid> &allowed, const std::vector<SwitcherWindowId> &axSwitchable,
+    const std::vector<SwitcherPid> &axAnswered, size_t limit
 )
 {
-  std::vector<SwitcherSpaceWindowInfo> result;
-  if (!switcherSpacesAvailable() || limit == 0) {
-    return result;
+  SwitcherSpacesSnapshot snapshot;
+  if (!switcherSpacesAvailable()) {
+    return snapshot;
   }
   const int32_t connection = spi().connection();
-  std::vector<uint64_t> userSpaces;
-  std::vector<uint64_t> visibleSpaces;
-  if (!readSpaces(connection, userSpaces, visibleSpaces)) {
+  NSArray *displays = copyDisplays(connection);
+  if (displays == nil) {
     LOG_DEBUG("window switcher: Spaces unknown, listing the current Space only");
-    return result;
+    return snapshot;
+  }
+  std::vector<uint64_t> desktopSpaces;
+  std::vector<uint64_t> visibleSpaces;
+  std::vector<SwitcherWindowId> tileWindows;
+  for (NSDictionary *display in displays) {
+    if (![display isKindOfClass:[NSDictionary class]]) {
+      continue;
+    }
+    if (const uint64_t current = spaceIdOf(display[@"Current Space"]); current != 0) {
+      visibleSpaces.push_back(current);
+    }
+    for (const auto &entry : entriesOf(display)) {
+      if (entry.kind == SwitcherSpaceKind::Desktop) {
+        desktopSpaces.push_back(entry.id);
+      }
+      for (const auto &tile : entry.tiles) {
+        tileWindows.push_back(tile.windowId);
+      }
+    }
+  }
+  if (NSDictionary *display = managedDisplay(displays, displayId); display != nil) {
+    snapshot.strip = switcherSpaceStrip(entriesOf(display), spaceIdOf(display[@"Current Space"]));
+  }
+  if (desktopSpaces.empty() || visibleSpaces.empty()) {
+    LOG_DEBUG("window switcher: Spaces unknown, listing the current Space only");
+    return snapshot;
   }
 
   CFArrayRef raw =
       CGWindowListCopyWindowInfo(kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
   if (raw == nullptr) {
-    return result;
+    return snapshot;
   }
   NSArray *infos = CFBridgingRelease(raw);
   std::vector<SwitcherSpaceWindow> windows;
   std::vector<NSString *> titles;
   for (NSDictionary *info in infos) {
-    if (windows.size() >= kMaxSpaceQueries) {
-      break;
-    }
     SwitcherSpaceWindow window;
     window.windowId = static_cast<SwitcherWindowId>(numberValue(info[(__bridge NSString *)kCGWindowNumber]));
-    window.pid = static_cast<SwitcherPid>([info[(__bridge NSString *)kCGWindowOwnerPID] intValue]);
-    window.layer = [info[(__bridge NSString *)kCGWindowLayer] intValue];
-    id alpha = info[(__bridge NSString *)kCGWindowAlpha];
-    window.alpha = [alpha isKindOfClass:[NSNumber class]] ? [alpha doubleValue] : 1.0;
-    CGRect bounds = CGRectZero;
-    if (NSDictionary *boundsDict = info[(__bridge NSString *)kCGWindowBounds];
-        [boundsDict isKindOfClass:[NSDictionary class]]) {
-      CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)boundsDict, &bounds);
+    id name = info[(__bridge NSString *)kCGWindowName];
+    NSString *title = [name isKindOfClass:[NSString class]] ? name : @"";
+    if (std::find(tileWindows.begin(), tileWindows.end(), window.windowId) != tileWindows.end()) {
+      if (title.length > 0) {
+        snapshot.tileTitles[window.windowId] = std::string(title.UTF8String ?: "");
+      }
+      continue; // shown by its strip item
     }
-    window.frame = {bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height};
-    if (!switcherSpaceWindowPlausible(window, allowed) ||
-        std::find(known.begin(), known.end(), window.windowId) != known.end()) {
+    if (windows.size() >= kMaxSpaceQueries) {
       continue;
     }
-    window.spaces = spacesOf(connection, window.windowId);
-    id name = info[(__bridge NSString *)kCGWindowName];
-    titles.push_back([name isKindOfClass:[NSString class]] ? name : @"");
-    windows.push_back(std::move(window));
-  }
-
-  for (const auto index : selectOtherSpaceWindows(windows, allowed, known, userSpaces, visibleSpaces, limit)) {
-    const auto &w = windows[index];
-    result.push_back(SwitcherSpaceWindowInfo{w.windowId, w.pid, std::string(titles[index].UTF8String ?: ""), w.frame});
-  }
-  return result;
-}
-
-std::vector<SwitcherDesktop> switcherEmptyDesktopsOnDisplay(uint32_t displayId, const std::vector<SwitcherPid> &allowed)
-{
-  std::vector<SwitcherDesktop> result;
-  if (!switcherSpacesAvailable()) {
-    return result;
-  }
-  const int32_t connection = spi().connection();
-  CFArrayRef raw = spi().copyManagedDisplaySpaces(connection);
-  if (raw == nullptr) {
-    return result;
-  }
-  NSArray *displays = CFBridgingRelease(raw);
-  if (![displays isKindOfClass:[NSArray class]]) {
-    return result;
-  }
-  NSDictionary *display = managedDisplay(displays, displayId);
-  NSArray *rawSpaces = display[@"Spaces"];
-  if (display == nil || ![rawSpaces isKindOfClass:[NSArray class]]) {
-    return result;
-  }
-  const uint64_t current = spaceIdOf(display[@"Current Space"]);
-  std::vector<SwitcherSpaceEntry> spaces;
-  for (NSDictionary *space in rawSpaces) {
-    if (const uint64_t id = spaceIdOf(space); id != 0) {
-      spaces.push_back(SwitcherSpaceEntry{id, static_cast<int>(numberValue(space[@"type"])) == kUserSpaceType});
-    }
-  }
-
-  CFArrayRef infoRaw =
-      CGWindowListCopyWindowInfo(kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
-  if (infoRaw == nullptr) {
-    return result;
-  }
-  NSArray *infos = CFBridgingRelease(infoRaw);
-  std::vector<uint64_t> occupied;
-  size_t queried = 0;
-  for (NSDictionary *info in infos) {
-    if (queried >= kMaxSpaceQueries) {
-      return result; // too many windows to be sure a desktop is empty: offer none
-    }
-    SwitcherSpaceWindow window;
-    window.windowId = static_cast<SwitcherWindowId>(numberValue(info[(__bridge NSString *)kCGWindowNumber]));
     window.pid = static_cast<SwitcherPid>([info[(__bridge NSString *)kCGWindowOwnerPID] intValue]);
     window.layer = [info[(__bridge NSString *)kCGWindowLayer] intValue];
     id alpha = info[(__bridge NSString *)kCGWindowAlpha];
@@ -331,12 +336,50 @@ std::vector<SwitcherDesktop> switcherEmptyDesktopsOnDisplay(uint32_t displayId, 
     if (!switcherSpaceWindowPlausible(window, allowed)) {
       continue;
     }
-    ++queried;
-    if (const auto onSpaces = spacesOf(connection, window.windowId); onSpaces.size() == 1) {
-      occupied.push_back(onSpaces.front()); // a window on several desktops belongs to none of them
+    if (spi().windowIsOrderedIn != nullptr) {
+      bool orderedIn = true;
+      if (spi().windowIsOrderedIn(connection, window.windowId, &orderedIn) == kCGErrorSuccess) {
+        window.orderedIn = orderedIn;
+      }
+    }
+    if (window.orderedIn) {
+      window.spaces = spacesOf(connection, window.windowId);
+    }
+    titles.push_back(title);
+    windows.push_back(std::move(window));
+  }
+
+  snapshot.valid = true;
+  for (const auto index :
+       selectSwitcherDesktopWindows(windows, allowed, desktopSpaces, visibleSpaces, axSwitchable, axAnswered, limit)) {
+    const auto &w = windows[index];
+    const bool visible = std::any_of(w.spaces.begin(), w.spaces.end(), [&](uint64_t space) {
+      return std::find(visibleSpaces.begin(), visibleSpaces.end(), space) != visibleSpaces.end();
+    });
+    snapshot.windows.push_back(
+        SwitcherSpaceWindowInfo{w.windowId, w.pid, std::string(titles[index].UTF8String ?: ""), w.frame, visible}
+    );
+  }
+  return snapshot;
+}
+
+std::vector<SwitcherTile> switcherVisibleFullscreenWindows()
+{
+  std::vector<SwitcherTile> result;
+  if (!switcherSpacesAvailable()) {
+    return result;
+  }
+  for (NSDictionary *display in copyDisplays(spi().connection())) {
+    if (![display isKindOfClass:[NSDictionary class]]) {
+      continue;
+    }
+    NSDictionary *current = display[@"Current Space"];
+    if ([current isKindOfClass:[NSDictionary class]] && kindOf(current) == SwitcherSpaceKind::Fullscreen) {
+      const auto tiles = tilesOf(current);
+      result.insert(result.end(), tiles.begin(), tiles.end());
     }
   }
-  return switcherEmptyDesktops(spaces, current, occupied);
+  return result;
 }
 
 void switcherSwitchSpaces(int steps)
@@ -425,6 +468,15 @@ bool switcherFocusWindow(SwitcherPid pid, SwitcherWindowId windowId)
 - (BOOL)isRejected:(uint32_t)windowId
 {
   return [_rejected containsObject:@(windowId)];
+}
+
+- (void)reject:(const std::vector<SwitcherWindowId> &)windowIds
+{
+  for (const auto id : windowIds) {
+    if (id != 0) {
+      [_rejected addObject:@(id)];
+    }
+  }
 }
 
 - (void)retainWindows:(const std::vector<SwitcherWindowId> &)alive

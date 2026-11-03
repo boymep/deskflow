@@ -10,6 +10,8 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include <vector>
+
 NS_ASSUME_NONNULL_BEGIN
 
 //! Captures window thumbnails for the built-in window switcher with ScreenCaptureKit.
@@ -35,6 +37,12 @@ cache is dropped a few minutes after the switcher closes.
             selection:(NSUInteger)selection
                 scale:(CGFloat)scale
               updated:(void (^)(NSUInteger index))updated;
+//! Captures the on-screen windows \p windowIds (e.g. of the fullscreen Space just shown) in the background.
+/*!
+Kept in a small separate cache that outlives the switcher, since a fullscreen window on a Space
+that is not shown often cannot be captured. In memory only; the last few windows are kept.
+*/
+- (void)rememberWindows:(const std::vector<uint32_t> &)windowIds;
 //! The wallpaper image loaded before for \p url, or nil.
 - (nullable NSImage *)cachedWallpaper:(NSURL *)url scale:(CGFloat)scale;
 //! Loads and downscales the wallpaper file \p url off the main thread; \p done runs on the main thread

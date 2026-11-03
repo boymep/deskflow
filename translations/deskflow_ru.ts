@@ -841,8 +841,16 @@ Additionally, check you are able to %1 the server config file: %2</source>
 <context>
     <name>OSXWindowSwitcher</name>
     <message>
+        <source>Desktop</source>
+        <translation>Рабочий стол</translation>
+    </message>
+    <message>
         <source>Desktop %1</source>
         <translation>Рабочий стол %1</translation>
+    </message>
+    <message>
+        <source>Current</source>
+        <translation>Текущий</translation>
     </message>
 </context>
 <context>

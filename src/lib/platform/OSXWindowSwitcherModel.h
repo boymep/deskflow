@@ -102,6 +102,7 @@ struct SwitcherSpaceWindow
   double alpha = 1.0;
   SwitcherRect frame;
   std::vector<uint64_t> spaces; //!< Space ids; empty if unknown
+  bool orderedIn = true;        //!< ordered in by its app (false: hidden, minimized or kept ordered out)
 };
 
 //! Smallest width and height, in points, of a window from another Space worth listing.
@@ -115,47 +116,101 @@ Checks everything except the Spaces, so it can run before they are looked up.
 */
 bool switcherSpaceWindowPlausible(const SwitcherSpaceWindow &window, const std::vector<SwitcherPid> &allowed);
 
-//! Indices of \p windows to add to the switcher as windows on other Spaces, in input order, at most \p limit.
+//! Indices of \p windows to list in the switcher's window grid, in input order, at most \p limit.
 /*!
-Keeps plausible windows (see switcherSpaceWindowPlausible) whose window id is
-not in \p known (already listed via Accessibility), whose Spaces are all in
-\p userSpaces (desktops and fullscreen apps; drops windows of system Spaces or
-on no Space) and none of them in \p visibleSpaces (a window there that
-Accessibility does not report is not a real window). Duplicates are dropped.
+The windows Mission Control shows on its desktops, the same from every Space: plausible
+windows (see switcherSpaceWindowPlausible) that are ordered in (hidden apps, minimized
+windows and windows an app keeps ordered out are not) and whose Spaces are all desktops in
+\p desktopSpaces (drops windows of fullscreen apps, which the Spaces strip shows, of system
+Spaces and on no Space). A window on a Space in \p visibleSpaces is kept only if its process
+is not in \p axAnswered (Accessibility did not list that app) or its id is in \p axSwitchable
+(Accessibility lists it as a standard window). Duplicates are dropped.
 */
-std::vector<size_t> selectOtherSpaceWindows(
+std::vector<size_t> selectSwitcherDesktopWindows(
     const std::vector<SwitcherSpaceWindow> &windows, const std::vector<SwitcherPid> &allowed,
-    const std::vector<SwitcherWindowId> &known, const std::vector<uint64_t> &userSpaces,
-    const std::vector<uint64_t> &visibleSpaces, size_t limit
+    const std::vector<uint64_t> &desktopSpaces, const std::vector<uint64_t> &visibleSpaces,
+    const std::vector<SwitcherWindowId> &axSwitchable, const std::vector<SwitcherPid> &axAnswered, size_t limit
 );
+
+//! Kind of a Space as reported by the window server.
+enum class SwitcherSpaceKind : uint8_t
+{
+  Desktop,    //!< a Mission Control desktop
+  Fullscreen, //!< a fullscreen app or a split view of two
+  Other,      //!< a system Space; not shown and not a Control+Arrow step
+};
+
+//! A window of a fullscreen Space (one per tile of a split view).
+struct SwitcherTile
+{
+  SwitcherPid pid = 0;
+  SwitcherWindowId windowId = 0;
+};
 
 //! A Space of one display in Mission Control order (pure data).
 struct SwitcherSpaceEntry
 {
   uint64_t id = 0;
-  bool desktop = false; //!< a Mission Control desktop; false for a fullscreen app or another kind of Space
+  SwitcherSpaceKind kind = SwitcherSpaceKind::Other;
+  std::vector<SwitcherTile> tiles; //!< windows of a fullscreen Space, left to right
 };
 
-//! An empty desktop the switcher can jump to.
-struct SwitcherDesktop
+//! One item of the Spaces strip (the top bar of Mission Control).
+struct SwitcherStripItem
 {
   uint64_t spaceId = 0;
-  int number = 0; //!< "Desktop N" of Mission Control, counted from 1 over the desktops of the display
-  int steps = 0;  //!< Control+Right presses from the current Space (negative: Control+Left presses)
+  SwitcherSpaceKind kind = SwitcherSpaceKind::Desktop;
+  int number = 0;  //!< "Desktop N" of Mission Control; 0 if the display has a single desktop (no number)
+  int steps = 0;   //!< Control+Right presses from the current Space (negative: Control+Left presses)
+  bool current = false;
+  std::vector<SwitcherTile> tiles; //!< windows of a fullscreen Space
 };
 
-//! Empty desktops of one display, except the \p current Space, in Mission Control order.
+//! The Spaces strip of one display: desktops and fullscreen Spaces in Mission Control order.
 /*!
-\p spaces are all Spaces of the display in order (desktops are numbered 1..N, fullscreen
-apps are not numbered but still count as a step). A desktop is empty if its id is not in
-\p occupied. Yields nothing if \p current is not among \p spaces.
+Desktops are numbered 1..N only if there are several (Mission Control shows a single one as
+"Desktop"). Other Spaces are skipped. Yields nothing if \p current is not a desktop or
+fullscreen Space of \p spaces, since the steps would be unknown.
 */
-std::vector<SwitcherDesktop> switcherEmptyDesktops(
-    const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current, const std::vector<uint64_t> &occupied
-);
+std::vector<SwitcherStripItem> switcherSpaceStrip(const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current);
 
-//! Title of the switcher item of desktop \p number (translated, "Desktop 2").
+//! Names of one window of a fullscreen Space.
+struct SwitcherTileName
+{
+  SwitcherPid pid = 0;
+  std::string appName;
+  std::string windowTitle; //!< may be empty
+};
+
+//! Titles of fullscreen Spaces (\p spaces: names of their tiles), like Mission Control.
+/*!
+A Space is titled by its app name, or by its window title if the same app has several
+fullscreen Spaces (falling back to the app name if the title is unknown). Split views
+join their tiles with " & ".
+*/
+std::vector<std::string> switcherFullscreenTitles(const std::vector<std::vector<SwitcherTileName>> &spaces);
+
+//! Title of the strip item of a desktop (translated): "Desktop 2", or "Desktop" for \p number 0.
 std::string switcherDesktopTitle(int number);
+
+//! Label of the current Space in the strip (translated).
+std::string switcherCurrentSpaceLabel();
+
+//! An item of the switcher as seen by the initial selection.
+struct SwitcherSelectable
+{
+  std::optional<size_t> rank; //!< window MRU rank (best of its windows); none for desktops and unknown windows
+  bool current = false;       //!< the current Space or the focused window: switching there does nothing
+  bool window = false;        //!< a grid window, not a strip item
+};
+
+//! Selection when the switcher opens over \p items (strip first, then windows).
+/*!
+\p reverse selects the last item. Otherwise the most recently used item that is not current
+(so Alt+Tab goes back to the previous fullscreen app or window, wherever it is); without MRU
+ranks the first window that is not current, else the strip item after the current one.
+*/
+size_t switcherInitialSelection(const std::vector<SwitcherSelectable> &items, bool reverse);
 
 //! Size of a remote Accessibility element token.
 inline constexpr size_t kSwitcherRemoteTokenSize = 20;

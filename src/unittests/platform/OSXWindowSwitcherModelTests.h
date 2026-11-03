@@ -22,7 +22,8 @@ private Q_SLOTS:
   void orderOtherSpacesMixedByMru();
   void orderOtherSpacesWithoutOnScreen();
   void spaceWindowPlausible();
-  void selectOtherSpaces();
+  void selectDesktopWindows();
+  void desktopWindowsSameFromEverySpace();
   void remoteToken();
   void makeKeyWindowEvent();
   void initialSelection();
@@ -33,9 +34,12 @@ private Q_SLOTS:
   void matchByTitleAndFrame();
   void matchAmbiguous();
   void captureOrder();
-  void emptyDesktops();
-  void emptyDesktopsSkipsFullscreenNumbers();
-  void emptyDesktopsUnknownCurrent();
+  void spaceStrip();
+  void spaceStripSingleDesktop();
+  void spaceStripUnknownCurrent();
+  void fullscreenTitles();
+  void initialSelectionMostRecent();
+  void initialSelectionFallbacks();
   void desktopTitle();
   void lruBoundedAndRecent();
 };
