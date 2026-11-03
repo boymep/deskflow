@@ -83,6 +83,11 @@ void runTool(const QString &program, const QStringList &arguments)
 
 void openApp(const QString &app)
 {
+  // for a dry run against a copy of the app, so no app is started
+  if (qEnvironmentVariableIsSet("DESKFLOW_UPDATE_NO_OPEN")) {
+    log(QStringLiteral("not opening %1, DESKFLOW_UPDATE_NO_OPEN is set").arg(app));
+    return;
+  }
   log(QStringLiteral("opening %1").arg(app));
   if (!QProcess::startDetached(QStringLiteral("/usr/bin/open"), {QStringLiteral("-n"), app}))
     log(QStringLiteral("could not open %1").arg(app));

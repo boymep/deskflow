@@ -12,7 +12,7 @@
  * Runs from the new, already verified bundle. Waits up to 30 s for the GUI and every process of the old
  * bundle to exit, swaps the bundles (rolling back on failure), removes the quarantine flag and opens the
  * app again. Every step goes to ~/Library/Logs/Deskflow/updater.log. On failure the old app is opened
- * again and a result file tells the GUI why.
+ * again and a result file tells the GUI why. With DESKFLOW_UPDATE_NO_OPEN set no app is opened (dry runs).
  *
  * @return the process exit code: 0 installed, 1 not installed, 2 bad call, 3 timeout.
  */
