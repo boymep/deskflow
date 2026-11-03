@@ -532,7 +532,7 @@ void OSXComputer::fakeMouseButton(ButtonID id, bool press)
   // forward goes to the Space on the right, back to the Space on the left.
   if (m_sideButtonsSwitchSpaces && (id == kButtonExtra0 || id == kButtonExtra1)) {
     if (press) {
-      const bool forward = id == kButtonExtra0;
+      const bool forward = id == kButtonExtra1;
       if (m_keyState->isRemoteCtrlHeld()) {
         postSpecialKey(forward ? kVK_RightArrow : kVK_LeftArrow, "switch space");
       } else {
