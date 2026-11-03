@@ -429,11 +429,57 @@ void OSXWindowSwitcherModelTests::initialSelectionFallbacks()
   QCOMPARE(switcherInitialSelection(std::vector<S>{}, false), size_t(0));
 }
 
+void OSXWindowSwitcherModelTests::spaceRecentUseOrder()
+{
+  const auto item = [](uint64_t id, int steps, bool current) {
+    SwitcherStripItem strip;
+    strip.spaceId = id;
+    strip.steps = steps;
+    strip.current = current;
+    return strip;
+  };
+  // Mission Control order 1 2 3 4 5, the current Space is 3
+  const std::vector<SwitcherStripItem> strip{item(1, -2, false), item(2, -1, false), item(3, 0, true),
+                                             item(4, 1, false),  item(5, 2, false)};
+  const auto ids = [](const std::vector<SwitcherStripItem> &items) {
+    std::vector<uint64_t> out;
+    for (const auto &i : items) {
+      out.push_back(i.spaceId);
+    }
+    return out;
+  };
+  using Ids = std::vector<uint64_t>;
+
+  // no history: the current Space first, the rest in Mission Control order
+  QCOMPARE(ids(switcherOrderByRecentUse(strip, {})), (Ids{3, 1, 2, 4, 5}));
+  // visited Spaces by recency, never visited ones after them
+  QCOMPARE(ids(switcherOrderByRecentUse(strip, {3, 5, 2})), (Ids{3, 5, 2, 1, 4}));
+  // the current Space is first even if the history is stale
+  QCOMPARE(ids(switcherOrderByRecentUse(strip, {5, 3, 2})), (Ids{3, 5, 2, 1, 4}));
+  // unknown ids are ignored
+  QCOMPARE(ids(switcherOrderByRecentUse(strip, {99, 4})), (Ids{3, 4, 1, 2, 5}));
+  // switching still counts steps by the real order
+  const auto ordered = switcherOrderByRecentUse(strip, {3, 5});
+  QCOMPARE(ordered[1].spaceId, uint64_t(5));
+  QCOMPARE(ordered[1].steps, 2);
+  QCOMPARE(ordered[2].steps, -2);
+  QVERIFY(switcherOrderByRecentUse({}, {1}).empty());
+
+  Ids history;
+  switcherTouchSpace(history, 2);
+  switcherTouchSpace(history, 7);
+  switcherTouchSpace(history, 2);
+  switcherTouchSpace(history, 0);
+  QCOMPARE(history, (Ids{2, 7}));
+  switcherTouchSpace(history, 9);
+  switcherPruneSpaceHistory(history, {9, 7});
+  QCOMPARE(history, (Ids{9, 7}));
+}
+
 void OSXWindowSwitcherModelTests::desktopTitle()
 {
   QCOMPARE(QString::fromStdString(switcherDesktopTitle(3)), QStringLiteral("Desktop 3"));
   QCOMPARE(QString::fromStdString(switcherDesktopTitle(0)), QStringLiteral("Desktop"));
-  QCOMPARE(QString::fromStdString(switcherCurrentSpaceLabel()), QStringLiteral("Current"));
 }
 
 void OSXWindowSwitcherModelTests::lruBoundedAndRecent()

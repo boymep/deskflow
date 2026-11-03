@@ -395,6 +395,42 @@ std::vector<SwitcherStripItem> switcherSpaceStrip(const std::vector<SwitcherSpac
   return strip;
 }
 
+void switcherTouchSpace(std::vector<uint64_t> &history, uint64_t id)
+{
+  if (id == 0) {
+    return;
+  }
+  std::erase(history, id);
+  history.insert(history.begin(), id);
+}
+
+void switcherPruneSpaceHistory(std::vector<uint64_t> &history, const std::vector<uint64_t> &alive)
+{
+  std::erase_if(history, [&alive](uint64_t id) { return std::find(alive.begin(), alive.end(), id) == alive.end(); });
+}
+
+std::vector<SwitcherStripItem>
+switcherOrderByRecentUse(const std::vector<SwitcherStripItem> &strip, const std::vector<uint64_t> &history)
+{
+  std::vector<SwitcherStripItem> ordered;
+  ordered.reserve(strip.size());
+  std::vector<bool> taken(strip.size(), false);
+  const auto take = [&](auto matches) {
+    for (size_t i = 0; i < strip.size(); ++i) {
+      if (!taken[i] && matches(strip[i])) {
+        taken[i] = true;
+        ordered.push_back(strip[i]);
+      }
+    }
+  };
+  take([](const SwitcherStripItem &item) { return item.current; });
+  for (const auto id : history) {
+    take([id](const SwitcherStripItem &item) { return item.spaceId == id; });
+  }
+  take([](const SwitcherStripItem &) { return true; });
+  return ordered;
+}
+
 SwitcherSpaceStepPlan
 switcherPlanSpaceStep(const std::vector<uint64_t> &order, uint64_t current, uint64_t target, uint64_t previousExpected)
 {
@@ -520,11 +556,6 @@ std::string switcherDesktopTitle(int number)
     return QCoreApplication::translate("OSXWindowSwitcher", "Desktop").toStdString();
   }
   return QCoreApplication::translate("OSXWindowSwitcher", "Desktop %1").arg(number).toStdString();
-}
-
-std::string switcherCurrentSpaceLabel()
-{
-  return QCoreApplication::translate("OSXWindowSwitcher", "Current").toStdString();
 }
 
 size_t switcherInitialSelection(const std::vector<SwitcherSelectable> &items, bool reverse)

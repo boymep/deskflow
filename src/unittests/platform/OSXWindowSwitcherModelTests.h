@@ -31,6 +31,7 @@ private Q_SLOTS:
   void fullscreenTitles();
   void initialSelectionMostRecent();
   void initialSelectionFallbacks();
+  void spaceRecentUseOrder();
   void desktopTitle();
   void lruBoundedAndRecent();
   void spaceStepPlanner();

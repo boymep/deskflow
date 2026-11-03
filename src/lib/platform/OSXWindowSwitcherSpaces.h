@@ -32,7 +32,7 @@ namespace deskflow::osx {
 struct SwitcherSpacesSnapshot
 {
   bool valid = false; //!< false: Spaces unknown, the strip is empty
-  std::vector<SwitcherStripItem> strip;          //!< Spaces of the display asked for, Mission Control order
+  std::vector<SwitcherStripItem> strip;          //!< Spaces of the display asked for, current first, then by recent use
   std::map<SwitcherWindowId, std::string> tileTitles; //!< window server titles of fullscreen windows, if known
 };
 
@@ -42,11 +42,17 @@ bool switcherIsSwitchableAXWindow(NSString *_Nullable role, NSString *_Nullable 
 //! True if Spaces can be listed and windows on other Spaces activated (all private calls found). Thread safe.
 bool switcherSpacesAvailable();
 
-//! The Spaces strip of display \p displayId (CGDirectDisplayID) and the known titles of its fullscreen windows.
+//! The Spaces strip (recent-use order) of display \p displayId (CGDirectDisplayID) and the known titles of its fullscreen windows.
 /*!
 Main thread. Invalid (empty strip) if switcherSpacesAvailable() is false or a call fails.
 */
 SwitcherSpacesSnapshot switcherSpacesSnapshot(uint32_t displayId);
+
+//! Records the Space that is current on every display (for the recent-use order of the snapshot).
+/*!
+Main thread; call when the active Space changed. The snapshot also records the current Space.
+*/
+void switcherNoteActiveSpaces();
 
 //! Windows of the fullscreen Spaces shown right now (all displays); empty if none or unknown.
 std::vector<SwitcherTile> switcherVisibleFullscreenWindows();

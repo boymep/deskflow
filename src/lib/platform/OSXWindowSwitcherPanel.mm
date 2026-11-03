@@ -157,7 +157,7 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
   );
 }
 
-//! Accent outline and a small badge marking the current Space on its thumbnail \p rect.
+//! Accent outline marking the current Space on its thumbnail \p rect.
 - (void)drawCurrentMarkIn:(NSRect)rect
 {
   if (!self.item.currentSpace) {
@@ -169,20 +169,6 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
   outline.lineWidth = 2;
   [[NSColor.controlAccentColor colorWithAlphaComponent:0.85] setStroke];
   [outline stroke];
-  if (self.item.badge.length == 0) {
-    return;
-  }
-  NSDictionary *attributes = @{
-    NSFontAttributeName : [NSFont systemFontOfSize:10 weight:NSFontWeightMedium],
-    NSForegroundColorAttributeName : NSColor.whiteColor
-  };
-  const NSSize text = [self.item.badge sizeWithAttributes:attributes];
-  const CGFloat width = MIN(ceil(text.width) + 10, rect.size.width - 8);
-  const NSRect pill = NSMakeRect(NSMinX(rect) + 5, NSMaxY(rect) - 5 - 15, width, 15);
-  [[NSColor.controlAccentColor colorWithAlphaComponent:0.85] setFill];
-  [[NSBezierPath bezierPathWithRoundedRect:pill xRadius:7.5 yRadius:7.5] fill];
-  [self.item.badge drawInRect:NSMakeRect(NSMinX(pill) + 5, NSMinY(pill) + floor((15 - text.height) / 2), width - 10, text.height)
-               withAttributes:attributes];
 }
 
 - (void)drawThumbnailTile

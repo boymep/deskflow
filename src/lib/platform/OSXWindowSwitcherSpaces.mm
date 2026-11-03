@@ -873,6 +873,26 @@ bool switcherSpacesAvailable()
   return spi().spaces() && spi().focus();
 }
 
+//! Spaces most recently current, per display ("Display Identifier"); main thread.
+static std::vector<uint64_t> &spaceHistory(NSDictionary *display)
+{
+  static std::map<std::string, std::vector<uint64_t>> histories;
+  NSString *identifier = display[@"Display Identifier"];
+  return histories[[identifier isKindOfClass:[NSString class]] ? std::string(identifier.UTF8String ?: "") : ""];
+}
+
+void switcherNoteActiveSpaces()
+{
+  if (!switcherSpacesAvailable()) {
+    return;
+  }
+  for (NSDictionary *display in copyDisplays(spi().connection())) {
+    if ([display isKindOfClass:[NSDictionary class]]) {
+      switcherTouchSpace(spaceHistory(display), spaceIdOf(display[@"Current Space"]));
+    }
+  }
+}
+
 SwitcherSpacesSnapshot switcherSpacesSnapshot(uint32_t displayId)
 {
   SwitcherSpacesSnapshot snapshot;
@@ -888,7 +908,21 @@ SwitcherSpacesSnapshot switcherSpacesSnapshot(uint32_t displayId)
   if (display == nil) {
     return snapshot;
   }
-  snapshot.strip = switcherSpaceStrip(entriesOf(display), spaceIdOf(display[@"Current Space"]));
+  auto strip = switcherSpaceStrip(entriesOf(display), spaceIdOf(display[@"Current Space"]));
+  if (!strip.empty()) {
+    // recent use, as on Windows; the steps keep the Mission Control order
+    auto &history = spaceHistory(display);
+    std::vector<uint64_t> alive;
+    for (const auto &item : strip) {
+      alive.push_back(item.spaceId);
+      if (item.current) {
+        switcherTouchSpace(history, item.spaceId);
+      }
+    }
+    switcherPruneSpaceHistory(history, alive);
+    strip = switcherOrderByRecentUse(strip, history);
+  }
+  snapshot.strip = std::move(strip);
   snapshot.valid = !snapshot.strip.empty();
 
   // window server titles of the fullscreen windows (empty without the Screen Recording permission)

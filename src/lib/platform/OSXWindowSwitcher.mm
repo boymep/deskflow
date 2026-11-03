@@ -143,6 +143,7 @@ AXUIElementRef createAppElement(pid_t pid)
 //! Spaces belong to the same app); a fullscreen window is captured while it can be, for the strip.
 - (void)noteSpaceChanged
 {
+  deskflow::osx::switcherNoteActiveSpaces();
   [self noteActivated:NSWorkspace.sharedWorkspace.frontmostApplication];
   if (_open || ![DeskflowSwitcherThumbnailer available]) {
     return;
@@ -249,13 +250,11 @@ AXUIElementRef createAppElement(pid_t pid)
   if (QCoreApplication::instance() != nullptr) {
     I18N::instance(); // installs the translators in this process (the core has none otherwise)
   }
-  NSString *currentLabel = @(deskflow::osx::switcherCurrentSpaceLabel().c_str());
   NSURL *wallpaper = screen != nil ? [NSWorkspace.sharedWorkspace desktopImageURLForScreen:screen] : nil;
   for (const auto &space : strip) {
     DeskflowSwitcherItem *item = [DeskflowSwitcherItem new];
     item.space = YES;
     item.currentSpace = space.current;
-    item.badge = space.current ? currentLabel : nil;
     item.spaceId = space.spaceId;
     item.spaceDisplay = displayId;
     if (space.kind == deskflow::osx::SwitcherSpaceKind::Desktop) {
@@ -380,21 +379,9 @@ AXUIElementRef createAppElement(pid_t pid)
   }
   [self updateStripTitles];
 
-  std::vector<deskflow::osx::SwitcherSelectable> selectables;
-  for (NSUInteger i = 0; i < _items.count; ++i) {
-    deskflow::osx::SwitcherSelectable selectable;
-    selectable.window = false;
-    selectable.current = _items[i].currentSpace;
-    for (const auto &tile : i < _stripTiles.size() ? _stripTiles[i] : std::vector<deskflow::osx::SwitcherTile>{}) {
-      if (const auto rank = _mru.windowRank(tile.windowId); rank && (!selectable.rank || *rank < *selectable.rank)) {
-        selectable.rank = rank;
-      }
-    }
-    selectables.push_back(selectable);
-  }
-
   _open = YES;
-  _selection = deskflow::osx::switcherInitialSelection(selectables, reverse);
+  // the tiles are in recent-use order, the current Space first: select the previous one
+  _selection = deskflow::osx::switcherInitialSelection(_items.count, reverse);
   // thumbnails only with the Screen Recording permission (checked, never requested here);
   // the panel shows at once with cached previews or icons, fresh previews fill in as they arrive.
   // Wallpapers need no permission.

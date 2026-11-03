@@ -23,7 +23,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, assign) BOOL space;           //!< a Space of the strip (desktop or fullscreen app), not a window
 @property(nonatomic, assign) BOOL desktop;         //!< a desktop Space: its thumbnail is the wallpaper
 @property(nonatomic, assign) BOOL currentSpace;    //!< the Space shown right now
-@property(nonatomic, copy, nullable) NSString *badge; //!< small label on the thumbnail (e.g. "Current")
 @property(nonatomic, assign) uint64_t spaceId;        //!< window server id of the Space (space items)
 @property(nonatomic, assign) uint32_t spaceDisplay;   //!< CGDirectDisplayID the Space belongs to (space items)
 @property(nonatomic, strong, nullable) NSURL *wallpaperURL; //!< wallpaper shown as the thumbnail of a desktop

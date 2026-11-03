@@ -107,6 +107,21 @@ fullscreen Space of \p spaces, since the steps would be unknown.
 */
 std::vector<SwitcherStripItem> switcherSpaceStrip(const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current);
 
+//! \p id became the current Space: moves it to the front of \p history (most recent first).
+void switcherTouchSpace(std::vector<uint64_t> &history, uint64_t id);
+
+//! Drops the ids of \p history that are not in \p alive.
+void switcherPruneSpaceHistory(std::vector<uint64_t> &history, const std::vector<uint64_t> &alive);
+
+//! \p strip in the order of Alt+Tab on Windows: the current Space first, then by recent use.
+/*!
+\p history: Space ids, most recently current first. Spaces not in it keep their strip (Mission
+Control) order after the visited ones. Only the order changes; \c steps stays relative to the real
+Mission Control order, so switching still counts steps by that order.
+*/
+std::vector<SwitcherStripItem>
+switcherOrderByRecentUse(const std::vector<SwitcherStripItem> &strip, const std::vector<uint64_t> &history);
+
 //! What the closed-loop Space switch does next (see switcherPlanSpaceStep).
 struct SwitcherSpaceStepPlan
 {
@@ -353,9 +368,6 @@ std::vector<std::string> switcherFullscreenTitles(const std::vector<std::vector<
 
 //! Title of the strip item of a desktop (translated): "Desktop 2", or "Desktop" for \p number 0.
 std::string switcherDesktopTitle(int number);
-
-//! Label of the current Space in the strip (translated).
-std::string switcherCurrentSpaceLabel();
 
 //! An item of the switcher as seen by the initial selection.
 struct SwitcherSelectable
