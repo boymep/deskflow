@@ -47,4 +47,8 @@ private Q_SLOTS:
   void directMethodOrder();
   void directSwitchPlanner();
   void directSwitchPlannerWaitsForTransition();
+  void directSwitchPlannerRetargets();
+  void spaceStepPosition();
+  void spaceStepGate();
+  void spacesSettled();
 };

@@ -199,6 +199,75 @@ every call, so a lost or a doubled step never makes the switch go past the targe
 SwitcherSpaceStepPlan
 switcherPlanSpaceStep(const std::vector<uint64_t> &order, uint64_t current, uint64_t target, uint64_t previousExpected);
 
+//! Where a Space switch stands, given the reported current Space (see switcherSpaceStepPosition).
+struct SwitcherSpacePosition
+{
+  enum class Status : uint8_t
+  {
+    Confirmed, //!< the reported current Space is where the posted steps lead
+    Lagging,   //!< the reported current Space is still on the way there (it updates late)
+    Elsewhere, //!< the reported current Space is off the way: someone else switched Spaces
+  };
+  Status status = Status::Elsewhere;
+  uint64_t position = 0; //!< the Space to plan the next step from (Confirmed and Lagging only)
+};
+
+//! Position of a Space switch whose steps lead from \p confirmed to \p assumed (pure).
+/*!
+\p order: Space ids in Control+Arrow order. \p confirmed: the last Space reported current by the switch,
+\p assumed: the Space its posted steps lead to (both 0 before the first step). The current Space is
+reported only after a transition ended (about a second after a step), so a \p current between
+\p confirmed and \p assumed is still a valid position: the switch goes on from \p assumed.
+*/
+SwitcherSpacePosition
+switcherSpaceStepPosition(const std::vector<uint64_t> &order, uint64_t current, uint64_t confirmed, uint64_t assumed);
+
+//! Timing of the stepping Space switch, in seconds.
+struct SwitcherStepTiming
+{
+  double minGap = 0.25;  //!< at least this long between two steps
+  double settle = 0.6;   //!< a transition is taken as running this long after a step or direct method
+  double trust = 1.5;    //!< after this the reported current Space is taken as real, even if late
+  double limit = 3.0;    //!< longest wait for anything (a stuck transition flag must not stall the switch)
+};
+
+//! What the stepping Space switch observes on one poll after a step.
+struct SwitcherStepObservation
+{
+  double sincePost = 0;      //!< since the last step was posted
+  bool landed = false;       //!< the reported current Space is where the posted steps lead
+  bool animating = false;    //!< the display shows a Space transition
+  bool sawAnimation = false; //!< a transition was seen since the last step
+};
+
+//! When the stepping Space switch posts its next step (see switcherStepGate).
+enum class SwitcherStepGate : uint8_t
+{
+  Wait,   //!< the last transition is still running or not known to be over: poll again
+  Ready,  //!< the last transition is over: plan the next step from the assumed position
+  Resync, //!< nothing more to wait for: take the reported current Space as real and plan from it
+};
+
+//! Whether the last step's transition is over (pure).
+/*!
+A step is over once the reported current Space is where it leads, or once a transition was seen and
+has ended (the current Space is reported later), never before \c minGap. Without either, the switch
+waits until \c trust and then believes the reported current Space.
+*/
+SwitcherStepGate switcherStepGate(const SwitcherStepObservation &now, const SwitcherStepTiming &timing = {});
+
+//! What a new Space switch observes before it reads the current Space.
+struct SwitcherSettleObservation
+{
+  double sinceStart = 0;    //!< since the new switch was asked for
+  double sinceAction = -1;  //!< since the last step or direct method of any switch, negative if none
+  bool animating = false;   //!< the display shows a Space transition
+  bool pendingLanded = true; //!< the steps of a replaced switch have shown up in the current Space
+};
+
+//! Whether the Spaces are settled, so a new switch can read the current Space and start (pure).
+bool switcherSpacesSettled(const SwitcherSettleObservation &now, const SwitcherStepTiming &timing = {});
+
 //! A way to jump straight to a window's Space (one transition) instead of stepping.
 enum class SwitcherDirectMethod : uint8_t
 {
@@ -241,6 +310,8 @@ struct SwitcherDirectObservation
   double sinceStart = 0;      //!< since the direct switch started
   double sinceMethod = 0;     //!< since the last method was tried (ignored before the first)
   double sinceAnimation = -1; //!< since a transition was last seen, negative if never (this method)
+  bool canRetarget = false;   //!< after a wrong landing the exact window may be tried once more
+  bool retargeted = false;    //!< the exact window was tried after a wrong landing (\c from is that Space)
 };
 
 //! What the direct Space switch does next (see switcherPlanDirectSwitch).
@@ -251,6 +322,7 @@ struct SwitcherDirectPlan
     Try,      //!< try \c method, then poll again
     Wait,     //!< poll again later
     Arrived,  //!< the target is current
+    Retarget, //!< landed on another Space (another window of the app): focus the exact window once more
     FallBack, //!< every method failed, time is up or the Spaces moved elsewhere: step from the current Space
   };
   Action action = Action::FallBack;
@@ -261,6 +333,8 @@ struct SwitcherDirectPlan
 /*!
 \p tried methods of \p order were tried so far. A method counts as working once a transition
 starts (\c animating) or the target becomes current; then it is waited for, not tried again.
+If a method lands on another Space (say another fullscreen window of the same app), the exact window
+is tried once more (\c Retarget, if \c canRetarget) from there; if that fails too, stepping starts.
 */
 SwitcherDirectPlan switcherPlanDirectSwitch(
     const std::vector<SwitcherDirectMethod> &order, size_t tried, uint64_t from, uint64_t target,

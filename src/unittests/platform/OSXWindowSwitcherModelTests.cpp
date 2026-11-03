@@ -613,3 +613,109 @@ void OSXWindowSwitcherModelTests::lruBoundedAndRecent()
   none.put(1, 1);
   QCOMPARE(none.size(), size_t(0));
 }
+
+void OSXWindowSwitcherModelTests::directSwitchPlannerRetargets()
+{
+  using Action = SwitcherDirectPlan::Action;
+  const auto order = switcherDefaultDirectMethods();
+  const SwitcherDirectTiming timing;
+  SwitcherDirectObservation o;
+  o.current = 5; // landed on another window's Space
+  o.sinceStart = 0.25;
+  o.sinceMethod = 0.25;
+  o.canRetarget = true;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, o, timing).action, Action::Retarget);
+  // without the element: step from there
+  o.canRetarget = false;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 1, 9, o, timing).action, Action::FallBack);
+  // retried from Space 5: wait, then arrive or step (never the next method)
+  o.canRetarget = true;
+  o.retargeted = true;
+  o.sinceMethod = 0.1;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 5, 9, o, timing).action, Action::Wait);
+  o.sinceMethod = 0.4;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 5, 9, o, timing).action, Action::FallBack);
+  o.current = 9;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 5, 9, o, timing).action, Action::Arrived);
+  // landed wrong once more: no second retry
+  o.current = 7;
+  o.sinceMethod = 0.1;
+  QCOMPARE(switcherPlanDirectSwitch(order, 1, 5, 9, o, timing).action, Action::FallBack);
+}
+
+void OSXWindowSwitcherModelTests::spaceStepPosition()
+{
+  using Status = SwitcherSpacePosition::Status;
+  const std::vector<uint64_t> order{1, 2, 3, 4, 5};
+  // before the first step: the current Space
+  auto p = switcherSpaceStepPosition(order, 2, 0, 0);
+  QCOMPARE(p.status, Status::Confirmed);
+  QCOMPARE(p.position, uint64_t(2));
+  // the steps showed up
+  p = switcherSpaceStepPosition(order, 4, 2, 4);
+  QCOMPARE(p.status, Status::Confirmed);
+  QCOMPARE(p.position, uint64_t(4));
+  // reported late: still on the way, go on from where the steps lead
+  for (const uint64_t current : {uint64_t(2), uint64_t(3)}) {
+    p = switcherSpaceStepPosition(order, current, 2, 4);
+    QCOMPARE(p.status, Status::Lagging);
+    QCOMPARE(p.position, uint64_t(4));
+  }
+  p = switcherSpaceStepPosition(order, 4, 5, 3);
+  QCOMPARE(p.status, Status::Lagging);
+  // off the way: someone else switched
+  QCOMPARE(switcherSpaceStepPosition(order, 1, 2, 4).status, Status::Elsewhere);
+  QCOMPARE(switcherSpaceStepPosition(order, 5, 2, 4).status, Status::Elsewhere);
+  QCOMPARE(switcherSpaceStepPosition(order, 9, 2, 4).status, Status::Elsewhere);
+  QCOMPARE(switcherSpaceStepPosition(order, 0, 2, 4).status, Status::Elsewhere);
+}
+
+void OSXWindowSwitcherModelTests::spaceStepGate()
+{
+  const SwitcherStepTiming timing;
+  auto at = [](double sincePost, bool landed, bool animating, bool saw) {
+    SwitcherStepObservation o;
+    o.sincePost = sincePost;
+    o.landed = landed;
+    o.animating = animating;
+    o.sawAnimation = saw;
+    return o;
+  };
+  // never faster than the minimum gap
+  QCOMPARE(switcherStepGate(at(0.1, true, false, true), timing), SwitcherStepGate::Wait);
+  // the transition runs: wait
+  QCOMPARE(switcherStepGate(at(0.4, false, true, true), timing), SwitcherStepGate::Wait);
+  // it ended: next step at once, without waiting for the late current Space
+  QCOMPARE(switcherStepGate(at(0.3, false, false, true), timing), SwitcherStepGate::Ready);
+  // the current Space showed it
+  QCOMPARE(switcherStepGate(at(0.3, true, false, false), timing), SwitcherStepGate::Ready);
+  // nothing known yet: wait (no overshoot), until the reported Space is trusted
+  QCOMPARE(switcherStepGate(at(1.0, false, false, false), timing), SwitcherStepGate::Wait);
+  QCOMPARE(switcherStepGate(at(1.5, false, false, false), timing), SwitcherStepGate::Resync);
+  // a stuck transition flag does not stall the switch
+  QCOMPARE(switcherStepGate(at(3.0, false, true, true), timing), SwitcherStepGate::Resync);
+  QCOMPARE(switcherStepGate(at(3.0, true, true, true), timing), SwitcherStepGate::Ready);
+}
+
+void OSXWindowSwitcherModelTests::spacesSettled()
+{
+  const SwitcherStepTiming timing;
+  auto at = [](double sinceStart, double sinceAction, bool animating, bool pendingLanded) {
+    SwitcherSettleObservation o;
+    o.sinceStart = sinceStart;
+    o.sinceAction = sinceAction;
+    o.animating = animating;
+    o.pendingLanded = pendingLanded;
+    return o;
+  };
+  QVERIFY(switcherSpacesSettled(at(0, -1, false, true), timing));
+  QVERIFY(!switcherSpacesSettled(at(0, -1, true, true), timing));
+  // a step was just posted
+  QVERIFY(!switcherSpacesSettled(at(0, 0.3, false, true), timing));
+  QVERIFY(switcherSpacesSettled(at(0.3, 0.6, false, true), timing));
+  // the steps of the replaced switch have not shown up yet
+  QVERIFY(!switcherSpacesSettled(at(0.5, 1.0, false, false), timing));
+  QVERIFY(switcherSpacesSettled(at(1.0, 1.5, false, false), timing));
+  // never stuck
+  QVERIFY(switcherSpacesSettled(at(3.0, 0.1, true, false), timing));
+}

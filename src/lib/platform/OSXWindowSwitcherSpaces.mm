@@ -191,14 +191,21 @@ NSArray *copyDisplays(int32_t connection)
   return [displays isKindOfClass:[NSArray class]] ? displays : nil;
 }
 
-//! The managed display dictionary of \p displayId, or nil.
-NSDictionary *managedDisplay(NSArray *displays, uint32_t displayId)
+//! The UUID string of \p displayId, or nil.
+NSString *displayUuid(uint32_t displayId)
 {
   NSString *uuid = nil;
   if (CFUUIDRef ref = CGDisplayCreateUUIDFromDisplayID(displayId); ref != nullptr) {
     uuid = CFBridgingRelease(CFUUIDCreateString(kCFAllocatorDefault, ref));
     CFRelease(ref);
   }
+  return uuid;
+}
+
+//! The managed display dictionary of \p displayId, or nil.
+NSDictionary *managedDisplay(NSArray *displays, uint32_t displayId)
+{
+  NSString *uuid = displayUuid(displayId);
   NSDictionary *only = nil;
   NSUInteger count = 0;
   for (NSDictionary *display in displays) {
@@ -275,24 +282,57 @@ bool readDisplaySpaces(uint32_t displayId, DisplaySpaces &out)
   return out.current != 0;
 }
 
+//! Whether the display shows a Space transition. The window server may know it by its UUID even when
+//! the managed display is listed as "Main", so both are asked.
+bool displayAnimating(const DisplaySpaces &spaces, uint32_t displayId)
+{
+  if (spi().displayIsAnimating == nullptr) {
+    return false;
+  }
+  const int32_t connection = spi().connection();
+  if (spaces.identifier != nil && spi().displayIsAnimating(connection, (__bridge CFStringRef)spaces.identifier)) {
+    return true;
+  }
+  NSString *uuid = displayUuid(displayId);
+  return uuid != nil && ![uuid isEqualToString:spaces.identifier ?: @""] &&
+         spi().displayIsAnimating(connection, (__bridge CFStringRef)uuid);
+}
+
+int msSince(CFAbsoluteTime start, CFAbsoluteTime now)
+{
+  return static_cast<int>((now - start) * 1000);
+}
+
 //! One Space switch in progress (main thread only). Owned by the scheduled blocks through a shared_ptr.
 struct SpaceSwitch
 {
   uint64_t id = 0; //!< number of this switch, for the log
   uint32_t displayId = 0;
   uint64_t target = 0;
-  uint64_t from = 0;     //!< Space current when the last step was posted
-  uint64_t expected = 0; //!< Space the last step must reach; 0 before the first step
+  bool cancelled = false;   //!< replaced by a newer switch: its scheduled blocks do nothing
+  CFAbsoluteTime askedAt = 0; //!< when the switch was asked for
+  DeskflowSwitcherRemoteWindows *remote; //!< finds the element of the window to bring forward, or nil
+
+  // stepping
+  uint64_t confirmed = 0; //!< last Space reported current on the way; 0 before the first step
+  uint64_t assumed = 0;   //!< Space the posted steps lead to; 0 before the first step
+  CFAbsoluteTime steppingStart = 0;
   CFAbsoluteTime postedAt = 0;
-  int steps = 0; //!< steps posted so far
+  CFAbsoluteTime stepAnimationFrom = 0; //!< when a transition was first seen after the last step, 0 if not
+  CFAbsoluteTime stepAnimationTo = 0;   //!< when it was last seen
+  CFAbsoluteTime stepLandedAt = 0;      //!< when the last step showed up in the current Space, 0 if not yet
+  bool stepLogged = false;              //!< the outcome of the last step is logged
+  int steps = 0;                        //!< steps posted so far
+  int resyncs = 0;                      //!< times the reported current Space was taken over
 
   // direct switch, before any step
   SwitcherPid pid = 0;              //!< app of the window that is brought forward
   SwitcherWindowId windowId = 0;    //!< that window
   ::id element;                     //!< its AXUIElementRef, or nil (the member \c id hides the type)
-  uint64_t directFrom = 0;          //!< Space current when the direct switch started
+  uint64_t directFrom = 0;          //!< Space current when the direct switch started (or retargeted)
   std::vector<SwitcherDirectMethod> order;
   size_t tried = 0;                 //!< methods of \c order tried so far
+  bool retargeted = false;          //!< the exact window was tried again after a wrong landing
   CFAbsoluteTime directStart = 0;
   CFAbsoluteTime methodAt = 0;      //!< when the last method was tried
   CFAbsoluteTime animationAt = 0;   //!< when a transition was last seen after it, 0 if never
@@ -302,10 +342,11 @@ struct SpaceSwitch
 // main thread; the switch that is running. A new commit replaces it, which stops the old one.
 std::shared_ptr<SpaceSwitch> g_activeSpaceSwitch;
 uint64_t g_spaceSwitchCount = 0; // main thread
+CFAbsoluteTime g_lastSpaceAction = 0; // main thread; last step or direct method of any switch, 0 if none
+uint64_t g_pendingSpace = 0;          // main thread; where the steps of a replaced switch lead, 0 if none
 
 constexpr CFAbsoluteTime kSpacePollInterval = 0.02; // how often the current Space is read while a step runs
-constexpr CFAbsoluteTime kSpaceStepTimeout = 1.0;   // a step that did not land by then stops the switch
-constexpr CFAbsoluteTime kSpaceStepInterval = 0.3;  // at least this long between two steps (animation)
+constexpr int kMaxResyncs = 3;                      // times a late or lost step is recovered from
 
 void postSpaceStep(int direction)
 {
@@ -344,13 +385,39 @@ void endSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session)
   }
 }
 
+bool spaceSwitchLive(const std::shared_ptr<SpaceSwitch> &session)
+{
+  return !session->cancelled && g_activeSpaceSwitch == session;
+}
+
+//! Logs how the last step went: when its transition was seen and when the current Space showed it.
+void logStepOutcome(const SpaceSwitch &session, CFAbsoluteTime now, const char *outcome)
+{
+  char transition[64] = "no transition seen";
+  if (session.stepAnimationFrom > 0) {
+    snprintf(
+        transition, sizeof(transition), "transition %d-%d ms", msSince(session.postedAt, session.stepAnimationFrom),
+        msSince(session.postedAt, session.stepAnimationTo)
+    );
+  }
+  char landed[48] = "space not reported yet";
+  if (session.stepLandedAt > 0) {
+    snprintf(landed, sizeof(landed), "space reported at %d ms", msSince(session.postedAt, session.stepLandedAt));
+  }
+  LOG_INFO(
+      "space switch #%llu: step %d %s after %d ms (%s, %s)", static_cast<unsigned long long>(session.id),
+      session.steps, outcome, msSince(session.postedAt, now), transition, landed
+  );
+}
+
 void continueSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session)
 {
   using Action = deskflow::osx::SwitcherSpaceStepPlan::Action;
+  using Status = deskflow::osx::SwitcherSpacePosition::Status;
+  using Gate = deskflow::osx::SwitcherStepGate;
   const auto id = static_cast<unsigned long long>(session->id);
-  if (g_activeSpaceSwitch != session) {
-    LOG_INFO("space switch #%llu: replaced by a newer one after %d steps", id, session->steps);
-    return;
+  if (!spaceSwitchLive(session)) {
+    return; // replaced: the newer switch logged it
   }
   DisplaySpaces spaces;
   if (!readDisplaySpaces(session->displayId, spaces)) {
@@ -359,44 +426,104 @@ void continueSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session)
     return;
   }
   const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-  if (session->expected != 0 && spaces.current == session->from) {
-    // the last step has not landed yet
-    if (now - session->postedAt > kSpaceStepTimeout) {
-      LOG_INFO("space switch #%llu: step %d did not land within a second, stopped", id, session->steps);
+  if (session->steppingStart == 0) {
+    session->steppingStart = now;
+  }
+  uint64_t position = spaces.current;
+  if (session->assumed != 0) {
+    // a step is out: wait until its transition is over, never past the target
+    const bool animating = displayAnimating(spaces, session->displayId);
+    if (animating) {
+      if (session->stepAnimationFrom == 0) {
+        session->stepAnimationFrom = now;
+      }
+      session->stepAnimationTo = now;
+    }
+    const auto where = deskflow::osx::switcherSpaceStepPosition(
+        spaces.order, spaces.current, session->confirmed, session->assumed
+    );
+    if (where.status == Status::Elsewhere) {
+      LOG_INFO(
+          "space switch #%llu: stopped after %d steps, spaces were switched by something else (on %llu, expected %llu)",
+          id, session->steps, static_cast<unsigned long long>(spaces.current),
+          static_cast<unsigned long long>(session->assumed)
+      );
       endSpaceSwitch(session);
       return;
     }
-    scheduleSpaceSwitch(session, kSpacePollInterval);
-    return;
+    const bool landed = spaces.current == session->assumed;
+    if (landed && session->stepLandedAt == 0) {
+      session->stepLandedAt = now;
+    }
+    session->confirmed = spaces.current; // on the way or there: a step back would show as elsewhere
+    deskflow::osx::SwitcherStepObservation observation;
+    observation.sincePost = now - session->postedAt;
+    observation.landed = landed;
+    observation.animating = animating;
+    observation.sawAnimation = session->stepAnimationFrom > 0;
+    const auto gate = deskflow::osx::switcherStepGate(observation);
+    if (gate == Gate::Wait) {
+      scheduleSpaceSwitch(session, kSpacePollInterval);
+      return;
+    }
+    if (gate == Gate::Resync && !landed) {
+      if (!session->stepLogged) {
+        logStepOutcome(*session, now, "not confirmed");
+      }
+      if (++session->resyncs > kMaxResyncs) {
+        LOG_INFO("space switch #%llu: stopped after %d steps, steps keep getting lost", id, session->steps);
+        endSpaceSwitch(session);
+        return;
+      }
+      LOG_INFO(
+          "space switch #%llu: current space still reads %llu, going on from there", id,
+          static_cast<unsigned long long>(spaces.current)
+      );
+      session->assumed = spaces.current;
+      session->stepLogged = true;
+    } else {
+      if (!session->stepLogged) {
+        logStepOutcome(*session, now, "over");
+        session->stepLogged = true;
+      }
+      position = session->assumed;
+    }
   }
-  const auto plan =
-      deskflow::osx::switcherPlanSpaceStep(spaces.order, spaces.current, session->target, session->expected);
+  const auto plan = deskflow::osx::switcherPlanSpaceStep(spaces.order, position, session->target, 0);
   switch (plan.action) {
   case Action::Done:
-    LOG_INFO("space switch #%llu: arrived after %d steps", id, session->steps);
-    endSpaceSwitch(session);
+    if (spaces.current == session->target) {
+      LOG_INFO(
+          "space switch #%llu: arrived after %d steps in %d ms", id, session->steps,
+          msSince(session->steppingStart, now)
+      );
+      endSpaceSwitch(session);
+      return;
+    }
+    // the last step leads there, the current Space is not reported yet: post nothing, wait for it
+    scheduleSpaceSwitch(session, kSpacePollInterval);
     return;
   case Action::Abort:
-    LOG_INFO(
-        "space switch #%llu: stopped after %d steps, %s", id, session->steps,
-        session->expected != 0 ? "spaces were switched by something else" : "current or target space unknown"
-    );
+    LOG_INFO("space switch #%llu: stopped after %d steps, current or target space unknown", id, session->steps);
     endSpaceSwitch(session);
     return;
   case Action::Step:
     break;
   }
-  if (session->expected != 0 && now - session->postedAt < kSpaceStepInterval) {
-    scheduleSpaceSwitch(session, kSpaceStepInterval - (now - session->postedAt));
-    return;
+  if (session->assumed == 0) {
+    session->confirmed = spaces.current;
   }
-  session->from = spaces.current;
-  session->expected = plan.expected;
+  session->assumed = plan.expected;
   session->postedAt = now;
+  session->stepAnimationFrom = 0;
+  session->stepAnimationTo = 0;
+  session->stepLandedAt = 0;
+  session->stepLogged = false;
   ++session->steps;
+  g_lastSpaceAction = now;
   LOG_INFO(
-      "space switch #%llu: step %d to the %s, %d left", id, session->steps, plan.direction > 0 ? "right" : "left",
-      plan.remaining - 1
+      "space switch #%llu: step %d to the %s at %d ms, %d left", id, session->steps,
+      plan.direction > 0 ? "right" : "left", msSince(session->steppingStart, now), plan.remaining - 1
   );
   postSpaceStep(plan.direction);
   scheduleSpaceSwitch(session, kSpacePollInterval);
@@ -542,6 +669,28 @@ bool focusByWindowServer(SwitcherPid pid, SwitcherWindowId windowId, id element)
   return true;
 }
 
+//! After a wrong landing: the exact window main, focused and raised, then its app activated (without
+//! bringing all its windows, which would pick another of them again).
+void focusExactWindow(SwitcherPid pid, id element)
+{
+  auto window = (__bridge AXUIElementRef)element;
+  AXUIElementSetMessagingTimeout(window, kDirectAxTimeout);
+  AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
+  AXUIElementSetAttributeValue(window, kAXFocusedAttribute, kCFBooleanTrue);
+  AXUIElementPerformAction(window, kAXRaiseAction);
+  NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
+  if (app != nil && !app.terminated) {
+    if (@available(macOS 14.0, *)) {
+      if (NSApp != nil) {
+        [NSApp yieldActivationToApplication:app];
+      }
+      [app activateFromApplication:NSRunningApplication.currentApplication options:0];
+    } else {
+      [app activateWithOptions:0];
+    }
+  }
+}
+
 void runDirectMethod(SwitcherDirectMethod method, const SpaceSwitch &session)
 {
   switch (method) {
@@ -577,9 +726,8 @@ void continueDirectSwitch(const std::shared_ptr<SpaceSwitch> &session)
 {
   using Action = deskflow::osx::SwitcherDirectPlan::Action;
   const auto id = static_cast<unsigned long long>(session->id);
-  if (g_activeSpaceSwitch != session) {
-    LOG_INFO("space switch #%llu: replaced by a newer one during the direct switch", id);
-    return;
+  if (!spaceSwitchLive(session)) {
+    return; // replaced: the newer switch logged it
   }
   DisplaySpaces spaces;
   if (!readDisplaySpaces(session->displayId, spaces)) {
@@ -590,8 +738,7 @@ void continueDirectSwitch(const std::shared_ptr<SpaceSwitch> &session)
   const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
   deskflow::osx::SwitcherDirectObservation observation;
   observation.current = spaces.current;
-  observation.animating = session->tried > 0 && spi().displayIsAnimating != nullptr && spaces.identifier != nil &&
-                          spi().displayIsAnimating(spi().connection(), (__bridge CFStringRef)spaces.identifier);
+  observation.animating = session->tried > 0 && displayAnimating(spaces, session->displayId);
   if (observation.animating) {
     session->animationAt = now;
     session->sawAnimation = true;
@@ -599,6 +746,8 @@ void continueDirectSwitch(const std::shared_ptr<SpaceSwitch> &session)
   observation.sinceStart = now - session->directStart;
   observation.sinceMethod = now - session->methodAt;
   observation.sinceAnimation = session->animationAt > 0 ? now - session->animationAt : -1;
+  observation.canRetarget = session->element != nil;
+  observation.retargeted = session->retargeted;
   const auto plan = deskflow::osx::switcherPlanDirectSwitch(
       session->order, session->tried, session->directFrom, session->target, observation
   );
@@ -616,6 +765,22 @@ void continueDirectSwitch(const std::shared_ptr<SpaceSwitch> &session)
     ++session->tried;
     session->methodAt = CFAbsoluteTimeGetCurrent();
     session->animationAt = 0;
+    g_lastSpaceAction = session->methodAt;
+    scheduleDirectSwitch(session, kSpacePollInterval);
+    return;
+  case Action::Retarget:
+    LOG_INFO(
+        "space switch #%llu: direct via %s landed on space %llu after %d ms (%s), trying the exact window again", id,
+        deskflow::osx::switcherDirectMethodName(session->order[session->tried - 1]),
+        static_cast<unsigned long long>(spaces.current), elapsedMs,
+        session->sawAnimation ? "transition seen" : "no transition seen"
+    );
+    focusExactWindow(session->pid, session->element);
+    session->retargeted = true;
+    session->directFrom = spaces.current;
+    session->methodAt = CFAbsoluteTimeGetCurrent();
+    session->animationAt = 0;
+    g_lastSpaceAction = session->methodAt;
     scheduleDirectSwitch(session, kSpacePollInterval);
     return;
   case Action::Arrived: {
@@ -627,8 +792,9 @@ void continueDirectSwitch(const std::shared_ptr<SpaceSwitch> &session)
     const auto method = session->order[session->tried - 1];
     directOrder() = deskflow::osx::switcherPromoteDirectMethod(directOrder(), method);
     LOG_INFO(
-        "space switch #%llu: direct via %s, arrived after %d ms (%s)", id,
-        deskflow::osx::switcherDirectMethodName(method), elapsedMs, session->sawAnimation ? "transition seen" : "no transition seen"
+        "space switch #%llu: direct via %s%s, arrived after %d ms (%s)", id,
+        deskflow::osx::switcherDirectMethodName(method), session->retargeted ? " and the exact window" : "", elapsedMs,
+        session->sawAnimation ? "transition seen" : "no transition seen"
     );
     endSpaceSwitch(session);
     return;
@@ -636,10 +802,11 @@ void continueDirectSwitch(const std::shared_ptr<SpaceSwitch> &session)
   case Action::FallBack:
     break;
   }
-  if (spaces.current != session->directFrom) {
+  if (session->retargeted || spaces.current != session->directFrom) {
     LOG_INFO(
-        "space switch #%llu: direct methods landed on space %llu after %d ms, fell back to stepping", id,
-        static_cast<unsigned long long>(spaces.current), elapsedMs
+        "space switch #%llu: direct methods landed on space %llu after %d ms%s, fell back to stepping", id,
+        static_cast<unsigned long long>(spaces.current), elapsedMs,
+        session->retargeted ? " (the exact window did not help)" : ""
     );
   } else {
     const std::vector<SwitcherDirectMethod> tried(
@@ -800,22 +967,47 @@ std::vector<SwitcherTile> switcherVisibleFullscreenWindows()
   return result;
 }
 
-void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitcherRemoteWindows *remote)
+//! Starts \p session once the Spaces are settled: no transition running, none just asked for, and the
+//! steps of a replaced switch shown in the current Space (or given up on).
+static void startSpaceSwitchWhenSettled(const std::shared_ptr<SpaceSwitch> &session)
 {
-  // a new commit: it replaces (and so stops) a switch that is still running
-  auto session = std::make_shared<SpaceSwitch>();
-  session->id = ++g_spaceSwitchCount;
-  session->displayId = displayId;
-  session->target = spaceId;
-  g_activeSpaceSwitch = session;
+  if (!spaceSwitchLive(session)) {
+    return;
+  }
   const auto id = static_cast<unsigned long long>(session->id);
+  const uint32_t displayId = session->displayId;
   DisplaySpaces spaces;
-  if (!switcherSpacesAvailable() || !readDisplaySpaces(displayId, spaces)) {
+  if (!readDisplaySpaces(displayId, spaces)) {
     LOG_INFO("space switch #%llu: spaces of display %u unknown, nothing done", id, displayId);
     endSpaceSwitch(session);
     return;
   }
-  const auto target = std::find_if(spaces.entries.begin(), spaces.entries.end(), [spaceId](const auto &entry) {
+  const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+  SwitcherSettleObservation observation;
+  observation.sinceStart = now - session->askedAt;
+  observation.sinceAction = g_lastSpaceAction > 0 ? now - g_lastSpaceAction : -1;
+  observation.animating = displayAnimating(spaces, displayId);
+  observation.pendingLanded = g_pendingSpace == 0 || spaces.current == g_pendingSpace;
+  if (!switcherSpacesSettled(observation)) {
+    // the block keeps its own copy of the shared_ptr (see scheduleSpaceSwitch)
+    std::shared_ptr<SpaceSwitch> waiting = session;
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(kSpacePollInterval * NSEC_PER_SEC)),
+        dispatch_get_main_queue(), ^{
+          startSpaceSwitchWhenSettled(waiting);
+        }
+    );
+    return;
+  }
+  if (now - session->askedAt > kSpacePollInterval) {
+    LOG_INFO(
+        "space switch #%llu: waited %d ms for the previous transition to settle%s", id, msSince(session->askedAt, now),
+        observation.pendingLanded ? "" : " (its steps never showed up)"
+    );
+  }
+  g_pendingSpace = 0;
+  const uint64_t spaceId = session->target;
+  const auto target = std::find_if(spaces.entries.begin(), spaces.entries.end(), [spaceId = session->target](const auto &entry) {
     return entry.id == spaceId;
   });
   const char *kind = target == spaces.entries.end()                  ? "unknown"
@@ -849,8 +1041,8 @@ void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitche
   session->directFrom = spaces.current;
   session->order = directOrder();
   session->directStart = CFAbsoluteTimeGetCurrent();
-  if (remote != nil) {
-    session->element = [remote windowNow:window->windowId pid:window->pid budget:kResolveBudget].element;
+  if (session->remote != nil) {
+    session->element = [session->remote windowNow:window->windowId pid:window->pid budget:kResolveBudget].element;
   }
   LOG_INFO(
       "space switch #%llu: to %s space %llu from %llu directly (window %u of pid %d, %s element, order %s, %s)", id,
@@ -860,6 +1052,37 @@ void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitche
       spi().displayIsAnimating != nullptr ? "transition detection on" : "no transition detection"
   );
   continueDirectSwitch(session);
+}
+
+void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitcherRemoteWindows *remote)
+{
+  // a new commit: it replaces (and so stops at once) a switch that is still running
+  auto session = std::make_shared<SpaceSwitch>();
+  session->id = ++g_spaceSwitchCount;
+  session->displayId = displayId;
+  session->target = spaceId;
+  session->remote = remote;
+  session->askedAt = CFAbsoluteTimeGetCurrent();
+  if (const auto previous = g_activeSpaceSwitch; previous != nullptr) {
+    previous->cancelled = true;
+    LOG_INFO(
+        "space switch #%llu: replaced by #%llu after %d steps", static_cast<unsigned long long>(previous->id),
+        static_cast<unsigned long long>(session->id), previous->steps
+    );
+    if (previous->assumed != 0 && previous->assumed != previous->confirmed) {
+      g_pendingSpace = previous->assumed; // its last steps are still on their way
+    }
+  }
+  g_activeSpaceSwitch = session;
+  if (!switcherSpacesAvailable()) {
+    LOG_INFO(
+        "space switch #%llu: spaces of display %u unknown, nothing done", static_cast<unsigned long long>(session->id),
+        displayId
+    );
+    endSpaceSwitch(session);
+    return;
+  }
+  startSpaceSwitchWhenSettled(session);
 }
 
 bool switcherFocusWindow(SwitcherPid pid, SwitcherWindowId windowId)

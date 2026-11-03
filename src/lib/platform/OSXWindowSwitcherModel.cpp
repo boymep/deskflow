@@ -293,10 +293,14 @@ SwitcherDirectPlan switcherPlanDirectSwitch(
       return {now.sinceMethod < timing.animationLimit ? Action::Wait : Action::FallBack};
     }
     if (now.current != from) {
-      return {Action::FallBack}; // landed elsewhere: stepping goes on from there
+      // landed elsewhere (another window of the app?): the exact window once more, else step from there
+      return {now.canRetarget && !now.retargeted ? Action::Retarget : Action::FallBack};
     }
     if (now.sinceMethod < timing.perMethod) {
       return {Action::Wait};
+    }
+    if (now.retargeted) {
+      return {Action::FallBack}; // the exact window did not move the display either
     }
   }
   if (tried >= order.size() || (tried > 0 && now.sinceStart >= timing.total)) {
@@ -463,6 +467,60 @@ switcherPlanSpaceStep(const std::vector<uint64_t> &order, uint64_t current, uint
   plan.remaining = std::abs(distance);
   plan.expected = *(from + plan.direction);
   return plan;
+}
+
+SwitcherSpacePosition
+switcherSpaceStepPosition(const std::vector<uint64_t> &order, uint64_t current, uint64_t confirmed, uint64_t assumed)
+{
+  using Status = SwitcherSpacePosition::Status;
+  if (current == 0) {
+    return {};
+  }
+  if (assumed == 0 || current == assumed) {
+    return {Status::Confirmed, current};
+  }
+  const auto from = std::find(order.begin(), order.end(), confirmed);
+  const auto to = std::find(order.begin(), order.end(), assumed);
+  const auto at = std::find(order.begin(), order.end(), current);
+  if (from == order.end() || to == order.end() || at == order.end()) {
+    return {};
+  }
+  // on the way from the confirmed Space to the assumed one (the current Space is reported late)
+  if ((from <= at && at < to) || (to < at && at <= from)) {
+    return {Status::Lagging, assumed};
+  }
+  return {};
+}
+
+SwitcherStepGate switcherStepGate(const SwitcherStepObservation &now, const SwitcherStepTiming &timing)
+{
+  if (now.sincePost >= timing.limit) {
+    return now.landed ? SwitcherStepGate::Ready : SwitcherStepGate::Resync;
+  }
+  if (now.animating || now.sincePost < timing.minGap) {
+    return SwitcherStepGate::Wait;
+  }
+  if (now.landed || now.sawAnimation) {
+    return SwitcherStepGate::Ready; // the transition is over; the current Space may be reported later
+  }
+  return now.sincePost >= timing.trust ? SwitcherStepGate::Resync : SwitcherStepGate::Wait;
+}
+
+bool switcherSpacesSettled(const SwitcherSettleObservation &now, const SwitcherStepTiming &timing)
+{
+  if (now.sinceStart >= timing.limit) {
+    return true; // waited long enough: a stuck transition flag must not block every switch
+  }
+  if (now.animating) {
+    return false;
+  }
+  if (now.sinceAction < 0) {
+    return true;
+  }
+  if (now.sinceAction < timing.settle) {
+    return false;
+  }
+  return now.pendingLanded || now.sinceAction >= timing.trust;
 }
 
 std::vector<std::string> switcherFullscreenTitles(const std::vector<std::vector<SwitcherTileName>> &spaces)
