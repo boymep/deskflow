@@ -210,8 +210,8 @@ p, li { white-space: pre-wrap; }
         <translation>Ctrl+Shift переключает язык ввода</translation>
     </message>
     <message>
-        <source>Server mouse forward button opens Mission Control and back button opens App Exposé instead of being sent as buttons. Works without the Windows server keyboard.</source>
-        <translation>Кнопка мыши сервера «вперёд» открывает Mission Control, а «назад» — App Exposé, вместо передачи как кнопки. Работает и без клавиатуры сервера Windows.</translation>
+        <source>Server mouse forward button opens Mission Control and back button opens App Exposé instead of being sent as buttons. Ctrl + side button switches Spaces (forward: right, back: left). Works without the Windows server keyboard.</source>
+        <translation>Кнопка мыши сервера «вперёд» открывает Mission Control, а «назад» — App Exposé, вместо передачи как кнопки. Ctrl + боковая кнопка переключает Spaces (вперёд — вправо, назад — влево). Работает и без клавиатуры сервера Windows.</translation>
     </message>
     <message>
         <source>Side mouse buttons open Mission Control (forward) and App Exposé (back)</source>

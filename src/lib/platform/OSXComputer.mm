@@ -507,17 +507,16 @@ void OSXComputer::postMouseEvent(CGPoint &pos) const
   CFRelease(event);
 }
 
-void OSXComputer::showMissionControl(bool appWindowsOnly)
+void OSXComputer::postSpecialKey(CGKeyCode key, const char *what)
 {
-  // Ctrl+Up is Mission Control, Ctrl+Down is App Exposé. macOS ignores a synthetic Control+Arrow
-  // unless the fn flag is set as well. The events carry explicit flags, so the keyboard modifier
-  // state stays untouched.
-  const CGKeyCode key = appWindowsOnly ? kVK_DownArrow : kVK_UpArrow;
+  // Ctrl+Up is Mission Control, Ctrl+Down is App Exposé, Ctrl+Left/Right switch Spaces. macOS ignores
+  // a synthetic Control+Arrow unless the fn flag is set as well. The events carry explicit flags
+  // (exactly Control|fn), so a held remote Ctrl adds nothing and the keyboard modifier state stays untouched.
   const CGEventFlags flags = kCGEventFlagMaskControl | kCGEventFlagMaskSecondaryFn;
   for (const bool down : {true, false}) {
     CGEventRef event = CGEventCreateKeyboardEvent(nullptr, key, down);
     if (event == nullptr) {
-      LOG_WARN("unable to create event to show mission control");
+      LOG_WARN("unable to create event to %s", what);
       return;
     }
     CGEventSetFlags(event, flags);
@@ -528,10 +527,17 @@ void OSXComputer::showMissionControl(bool appWindowsOnly)
 
 void OSXComputer::fakeMouseButton(ButtonID id, bool press)
 {
-  // forward (5) opens Mission Control, back (4) opens App Exposé instead of being posted; swallow the release too
+  // forward (5) / back (4) are not posted; swallow the release too.
+  // Without Ctrl: forward opens Mission Control, back opens App Exposé. With the server's Ctrl held:
+  // forward goes to the Space on the right, back to the Space on the left.
   if (m_sideButtonsSwitchSpaces && (id == kButtonExtra0 || id == kButtonExtra1)) {
     if (press) {
-      showMissionControl(id == kButtonExtra0);
+      const bool forward = id == kButtonExtra0;
+      if (m_keyState->isRemoteCtrlHeld()) {
+        postSpecialKey(forward ? kVK_RightArrow : kVK_LeftArrow, "switch space");
+      } else {
+        postSpecialKey(forward ? kVK_UpArrow : kVK_DownArrow, "show mission control");
+      }
     }
     return;
   }
