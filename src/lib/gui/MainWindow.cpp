@@ -303,8 +303,10 @@ void MainWindow::connectSlots()
   connect(m_statusBar, &StatusBar::requestShowMyFingerprints, this, &MainWindow::showMyFingerprint);
   connect(m_statusBar, &StatusBar::requestUpdateVersion, m_updateFlow, &updates::UpdateFlow::offerDownload);
   connect(m_updateFlow, &updates::UpdateFlow::updateFound, m_statusBar, &StatusBar::updateFound);
-  // quit like the Quit action, so settings are saved and the core process is stopped
-  connect(m_updateFlow, &updates::UpdateFlow::restartRequested, this, &MainWindow::close);
+  connect(m_updateFlow, &updates::UpdateFlow::installStarted, m_statusBar, &StatusBar::updateInstalling);
+  connect(m_updateFlow, &updates::UpdateFlow::installProgress, m_statusBar, &StatusBar::updateInstallProgress);
+  connect(m_updateFlow, &updates::UpdateFlow::installStopped, m_statusBar, &StatusBar::updateInstallStopped);
+  connect(m_updateFlow, &updates::UpdateFlow::restartRequested, this, &MainWindow::quitForUpdate);
 
   connect(m_guiDupeChecker, &QLocalServer::newConnection, this, &MainWindow::showAndActivate);
 
@@ -898,6 +900,35 @@ bool MainWindow::maybeHideToTray()
   qDebug() << "hiding to tray";
   hide();
   return true;
+}
+
+void MainWindow::quitForUpdate()
+{
+  qInfo("quitting to install an update");
+  // the new version starts the core again if it runs now
+  Settings::setValue(Settings::Gui::WindowGeometry, geometry());
+  Settings::setValue(Settings::Gui::AutoStartCore, m_coreProcess.isStarted());
+  m_saveOnExit = false;
+
+  if (m_coreProcess.processState() == ProcessState::Stopped) {
+    close();
+    return;
+  }
+
+  // the installer waits for the old core too, so the wait here is short and bounded
+  m_coreProcess.stop();
+  constexpr int kPollMs = 100;
+  constexpr int kMaxPolls = 50;
+  auto timer = new QTimer(this);
+  timer->setInterval(kPollMs);
+  connect(timer, &QTimer::timeout, this, [this, timer, polls = 0]() mutable {
+    if (m_coreProcess.processState() != ProcessState::Stopped && ++polls < kMaxPolls)
+      return;
+    timer->stop();
+    timer->deleteLater();
+    close();
+  });
+  timer->start();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)

@@ -134,6 +134,8 @@ private:
   void showFirstConnectedMessage();
   void updateStatus();
   void showAndActivate();
+  /// Stops the core and quits so the update installer can replace the app.
+  void quitForUpdate();
   void showHostNameEditor();
   void setHostName();
   void daemonIpcClientConnectionFailed();

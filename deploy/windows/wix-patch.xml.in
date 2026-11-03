@@ -96,7 +96,25 @@
       Impersonate="yes"
       Return="asyncNoWait" />
 
+    <!--
+      Automatic updates run "msiexec /i <msi> /passive /norestart DESKFLOW_RELAUNCH=1" after the app has quit.
+      The passive UI has no exit dialog, so the app is started again here. It goes through explorer.exe so it
+      runs as the signed-in user without the installer's elevation.
+    -->
+    <Property Id="DESKFLOW_RELAUNCH" Value="0" Secure="yes" />
+    <CustomAction
+      Id="RelaunchDeskflow"
+      ExeCommand="&quot;[WindowsFolder]explorer.exe&quot; &quot;[INSTALL_ROOT]deskflow.exe&quot;"
+      Directory="INSTALL_ROOT"
+      Execute="immediate"
+      Impersonate="yes"
+      Return="asyncNoWait" />
+
     <InstallExecuteSequence>
+      <Custom
+        Action="RelaunchDeskflow"
+        After="InstallFinalize"
+        Condition="DESKFLOW_RELAUNCH = &quot;1&quot; AND NOT (REMOVE ~= &quot;ALL&quot;)" />
       <Custom
         Action="CheckVCRedist"
         Before="InstallInitialize"

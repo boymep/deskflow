@@ -19,10 +19,6 @@ private Q_SLOTS:
   void assetUrl();
   void redirectUrl();
   void bundlePath();
-  void adhocSignature();
-  void designatedRequirement();
-  void macInstallScript();
-  void powerShellQuote();
-  void windowsInstallScript();
-  void powerShellEncodedCommand();
+  void updateVersionGate();
+  void msiexecArguments();
 };

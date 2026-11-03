@@ -7,166 +7,132 @@
 #include "UpdateInstaller.h"
 
 #include "UpdateUtils.h"
+#include "common/UpdateInstall.h"
+#include "common/VersionInfo.h"
+
+#if defined(Q_OS_MACOS)
+#include "MacCodeSignature.h"
+#endif
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QStandardPaths>
 
 namespace deskflow::gui::updates {
 
+using update_install::appendUpdaterLog;
+
 namespace {
 
+void logStep(const QString &message)
+{
+  qInfo("update: %s", qPrintable(message));
+  appendUpdaterLog(QStringLiteral("gui: ") + message);
+}
+
+/// Removes a download that failed the checks, so nothing untrusted stays around.
+void discardWorkDir(const QString &workDir)
+{
+  if (workDir.isEmpty() || !QFileInfo(workDir).fileName().startsWith(update_install::kWorkDirPrefix))
+    return;
+  QDir(workDir).removeRecursively();
+  logStep(QStringLiteral("removed %1").arg(workDir));
+}
+
 #if defined(Q_OS_MACOS)
-constexpr int kCodesignTimeoutMs = 2 * 60 * 1000;
-const auto kCodesign = QStringLiteral("/usr/bin/codesign");
-
-/// Runs a tool with an argument list (no shell) and returns its merged output, or nothing on failure.
-std::optional<QString> run(const QString &program, const QStringList &arguments, int *exitCode = nullptr)
+InstallStart startMacInstall(const QString &updatePath, const QString &workDir, const QString &releaseVersion)
 {
-  QProcess process;
-  process.setProcessChannelMode(QProcess::MergedChannels);
-  process.start(program, arguments);
-  if (!process.waitForFinished(kCodesignTimeoutMs) || process.exitStatus() != QProcess::NormalExit) {
-    process.kill();
-    process.waitForFinished();
-    return std::nullopt;
-  }
-  if (exitCode)
-    *exitCode = process.exitCode();
-  return QString::fromUtf8(process.readAll());
-}
-
-/// The new app must be validly signed; if the running app has a real certificate, by the same identity.
-bool verifySignature(const QString &runningApp, const QString &newApp)
-{
-  int exitCode = -1;
-  const auto info = run(kCodesign, {QStringLiteral("-dv"), runningApp}, &exitCode);
-  if (!info || exitCode != 0) {
-    qWarning("update not installed: could not read the signature of the running app");
-    return false;
-  }
-
-  QStringList arguments = {QStringLiteral("--verify"), QStringLiteral("--deep"), QStringLiteral("--strict")};
-  if (isAdhocSignature(*info)) {
-    qInfo("the running app is signed ad-hoc, checking only that the update is validly signed");
-  } else {
-    const auto requirementOutput = run(kCodesign, {QStringLiteral("-d"), QStringLiteral("-r-"), runningApp}, &exitCode);
-    const auto requirement = requirementOutput && exitCode == 0 ? designatedRequirement(*requirementOutput) : QString();
-    if (requirement.isEmpty()) {
-      qWarning("update not installed: could not read the designated requirement of the running app");
-      return false;
-    }
-    qInfo("checking the update against the requirement: %s", qPrintable(requirement));
-    // "=" marks the argument as requirement text instead of a file name
-    arguments << QStringLiteral("-R") << QLatin1Char('=') + requirement;
-  }
-  arguments << newApp;
-
-  const auto output = run(kCodesign, arguments, &exitCode);
-  if (!output || exitCode != 0) {
-    qWarning(
-        "update not installed: the signature check failed, exit code: %d, output: %s", exitCode,
-        output ? qPrintable(output->trimmed()) : "none"
-    );
-    return false;
-  }
-  return true;
-}
-
-bool startMacInstall(const QString &newApp, const QString &workDir)
-{
+  const auto newApp = QDir::cleanPath(QFileInfo(updatePath).absoluteFilePath());
   const auto target = bundlePathFromAppDir(QCoreApplication::applicationDirPath());
+  logStep(QStringLiteral("installing %1 to %2").arg(newApp, target));
   if (target.isEmpty()) {
-    qWarning(
-        "update not installed: the app does not run from a .app bundle: %s",
-        qPrintable(QCoreApplication::applicationDirPath())
-    );
-    return false;
+    logStep(QStringLiteral("not installed: the app does not run from a .app bundle"));
+    return {InstallError::NotInBundle, true};
   }
 
   const QFileInfo targetInfo(target);
   const QFileInfo parentInfo(targetInfo.absolutePath());
   // moving a folder to another parent also needs write access to the folder itself
   if (!parentInfo.isWritable() || !targetInfo.isWritable()) {
-    qWarning("update not installed: no write access to %s", qPrintable(target));
-    return false;
+    logStep(QStringLiteral("not installed: no write access to %1").arg(target));
+    return {InstallError::NoWriteAccess, true};
   }
 
-  if (!verifySignature(target, newApp))
-    return false;
-
-  const auto cleanWorkDir = QDir::cleanPath(workDir);
-  const auto scriptPath = QDir(cleanWorkDir).filePath(QStringLiteral("install.sh"));
-  QFile script(scriptPath);
-  if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate) || script.write(macInstallScript().toUtf8()) < 0) {
-    qWarning("update not installed: could not write %s", qPrintable(scriptPath));
-    return false;
+  const auto check = checkBundleSignature(newApp);
+  if (!check.valid) {
+    logStep(QStringLiteral("not installed: %1").arg(check.error));
+    discardWorkDir(workDir);
+    return {InstallError::SignatureMismatch, false};
   }
-  script.close();
+  logStep(QStringLiteral("the signature is valid, bundle version %1").arg(check.version));
 
-  const auto backup = cleanWorkDir + QStringLiteral("-backup");
-  const auto log = cleanWorkDir + QStringLiteral(".log");
-  const QStringList arguments = {
-      scriptPath, QString::number(QCoreApplication::applicationPid()), newApp, target, cleanWorkDir, backup, log
-  };
-  if (!QProcess::startDetached(QStringLiteral("/bin/sh"), arguments)) {
-    qWarning("update not installed: could not start the install helper");
-    return false;
+  if (!isAcceptableUpdateVersion(check.version, releaseVersion, QString::fromUtf8(kVersion))) {
+    logStep(QStringLiteral("not installed: bundle version %1, release %2, running %3")
+                .arg(check.version, releaseVersion, QString::fromUtf8(kVersion)));
+    discardWorkDir(workDir);
+    return {InstallError::VersionMismatch, false};
   }
 
-  qInfo("installing the update to %s after quitting, log: %s", qPrintable(target), qPrintable(log));
-  return true;
+  const auto helper = newApp + QStringLiteral("/Contents/MacOS/deskflow-core");
+  const QFileInfo helperInfo(helper);
+  if (!helperInfo.isFile() || !helperInfo.isExecutable() || helperInfo.isSymLink()) {
+    logStep(QStringLiteral("not installed: the update has no install helper"));
+    return {InstallError::HelperMissing, true};
+  }
+
+  const auto arguments =
+      update_install::helperArguments({newApp, target, QCoreApplication::applicationPid()});
+  if (!QProcess::startDetached(helper, arguments)) {
+    logStep(QStringLiteral("not installed: could not start the install helper"));
+    return {InstallError::StartFailed, true};
+  }
+
+  logStep(QStringLiteral("the install helper is running, quitting"));
+  return {};
 }
 #endif
 
 #if defined(Q_OS_WIN)
-bool startWindowsInstall(const QString &msiPath, const QString &workDir)
+InstallStart startWindowsInstall(const QString &msiPath)
 {
   const auto systemRoot = qEnvironmentVariable("SystemRoot", QStringLiteral("C:\\Windows"));
-  const auto powerShell = QDir::toNativeSeparators(
-      QDir(systemRoot).filePath(QStringLiteral("System32/WindowsPowerShell/v1.0/powershell.exe"))
-  );
-  const auto exePath = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
-  const auto script = windowsInstallScript(
-      QDir::toNativeSeparators(QFileInfo(msiPath).absoluteFilePath()), exePath, QDir::toNativeSeparators(workDir),
-      QCoreApplication::applicationPid()
-  );
+  const auto msiexec = QDir::toNativeSeparators(QDir(systemRoot).filePath(QStringLiteral("System32/msiexec.exe")));
+  QDir().mkpath(update_install::updaterLogDir());
+  const auto msiLog =
+      QDir::toNativeSeparators(QDir(update_install::updaterLogDir()).filePath(QStringLiteral("msiexec.log")));
+  const auto msi = QDir::toNativeSeparators(QFileInfo(msiPath).absoluteFilePath());
 
-  // the script goes base64 encoded, so no part of it needs command line quoting
-  const QStringList arguments = {
-      QStringLiteral("-NoProfile"),
-      QStringLiteral("-ExecutionPolicy"),
-      QStringLiteral("Bypass"),
-      QStringLiteral("-WindowStyle"),
-      QStringLiteral("Hidden"),
-      QStringLiteral("-EncodedCommand"),
-      QString::fromLatin1(powerShellEncodedCommand(script))
-  };
-  if (!QProcess::startDetached(powerShell, arguments)) {
-    qWarning("update not installed: could not start %s", qPrintable(powerShell));
-    return false;
+  logStep(QStringLiteral("installing %1 with %2, log: %3").arg(msi, msiexec, msiLog));
+  // an argument list, no shell; msiexec asks for elevation itself
+  if (!QProcess::startDetached(msiexec, msiexecArguments(msi, msiLog))) {
+    logStep(QStringLiteral("not installed: could not start %1").arg(msiexec));
+    return {InstallError::StartFailed, true};
   }
 
-  qInfo("installing %s after quitting", qPrintable(msiPath));
-  return true;
+  logStep(QStringLiteral("msiexec is running, quitting"));
+  return {};
 }
 #endif
 
 } // namespace
 
-bool startInstall(const QString &updatePath, const QString &workDir)
+InstallStart startInstall(const QString &updatePath, const QString &workDir, const QString &releaseVersion)
 {
 #if defined(Q_OS_MACOS)
-  return startMacInstall(updatePath, workDir);
+  return startMacInstall(updatePath, workDir, releaseVersion);
 #elif defined(Q_OS_WIN)
-  return startWindowsInstall(updatePath, workDir);
+  Q_UNUSED(workDir)
+  Q_UNUSED(releaseVersion)
+  return startWindowsInstall(updatePath);
 #else
   Q_UNUSED(updatePath)
   Q_UNUSED(workDir)
-  qWarning("update not installed: automatic install is not supported on this platform");
-  return false;
+  Q_UNUSED(releaseVersion)
+  logStep(QStringLiteral("not installed: automatic install is not supported on this platform"));
+  return {InstallError::Unsupported, true};
 #endif
 }
 
@@ -183,6 +149,19 @@ void revealInFileManager(const QString &path)
 #else
   Q_UNUSED(path)
 #endif
+}
+
+void removeStaleWorkDirs()
+{
+  const QDir temp(QStandardPaths::writableLocation(QStandardPaths::TempLocation));
+  const auto limit = QDateTime::currentDateTime().addDays(-1);
+  const auto entries = temp.entryInfoList(
+      {update_install::kWorkDirPrefix + QLatin1Char('*')}, QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks
+  );
+  for (const auto &entry : entries) {
+    if (entry.lastModified() < limit)
+      discardWorkDir(entry.absoluteFilePath());
+  }
 }
 
 } // namespace deskflow::gui::updates

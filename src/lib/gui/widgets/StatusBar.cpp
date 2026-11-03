@@ -10,6 +10,7 @@
 
 #include <QEvent>
 #include <QLabel>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QTimer>
 
@@ -19,6 +20,8 @@ StatusBar::StatusBar(QWidget *parent)
       m_lblSecurityIcon{new QLabel(this)},
       m_lblStatus{new QLabel(this)},
       m_btnUpdate{new QPushButton(this)},
+      m_lblInstalling{new QLabel(this)},
+      m_progressInstall{new QProgressBar(this)},
       m_retryTimer{new QTimer(this)}
 {
   static const auto btnHeight = height() - 2;
@@ -48,6 +51,14 @@ StatusBar::StatusBar(QWidget *parent)
   m_btnUpdate->setIconSize(iconSize);
   insertPermanentWidget(3, m_btnUpdate);
   connect(m_btnUpdate, &QPushButton::clicked, this, &StatusBar::requestUpdateVersion);
+
+  m_lblInstalling->setVisible(false);
+  insertPermanentWidget(4, m_lblInstalling);
+  m_progressInstall->setVisible(false);
+  m_progressInstall->setTextVisible(false);
+  m_progressInstall->setRange(0, 0);
+  m_progressInstall->setFixedSize(80, fontMetrics().height() / 2 + 2);
+  insertPermanentWidget(5, m_progressInstall);
 
   m_retryTimer->setInterval(1000);
   m_retryTimer->setSingleShot(false);
@@ -165,8 +176,37 @@ void StatusBar::setBtnFingerprintVisible(bool visible)
 
 void StatusBar::updateFound(const QString &version)
 {
+  updateInstallStopped();
   m_btnUpdate->setVisible(true);
   m_btnUpdate->setToolTip(tr("A new version v%1 is available").arg(version));
+}
+
+void StatusBar::updateInstalling(const QString &version)
+{
+  m_btnUpdate->setVisible(false);
+  const auto tip = tr("Installing version v%1. %2 will restart when it is ready.").arg(version, kAppName);
+  m_lblInstalling->setToolTip(tip);
+  m_progressInstall->setToolTip(tip);
+  m_progressInstall->setRange(0, 0);
+  m_lblInstalling->setVisible(true);
+  m_progressInstall->setVisible(true);
+}
+
+void StatusBar::updateInstallProgress(qint64 received, qint64 total)
+{
+  if (total <= 0) {
+    m_progressInstall->setRange(0, 0);
+    return;
+  }
+  // percent, so the range fits in an int
+  m_progressInstall->setRange(0, 100);
+  m_progressInstall->setValue(static_cast<int>(qMin(received, total) * 100 / total));
+}
+
+void StatusBar::updateInstallStopped()
+{
+  m_lblInstalling->setVisible(false);
+  m_progressInstall->setVisible(false);
 }
 
 void StatusBar::changeEvent(QEvent *e)
@@ -180,6 +220,7 @@ void StatusBar::updateText()
 {
   m_btnFingerprint->setToolTip(tr("View local fingerprint"));
   m_btnUpdate->setText(tr("Update available"));
+  m_lblInstalling->setText(tr("Installing update"));
   setSecurityLevel(m_securityLevel);
 }
 

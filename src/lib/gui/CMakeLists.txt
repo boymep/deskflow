@@ -10,6 +10,8 @@ if(APPLE)
   set (platform_sources
     OSXHelpers.h
     OSXHelpers.mm
+    updates/MacCodeSignature.cpp
+    updates/MacCodeSignature.h
   )
 endif()
 
@@ -130,3 +132,7 @@ target_link_libraries(${target}
     net
     Qt6::Widgets
 )
+
+if(APPLE)
+  target_link_libraries(${target} PRIVATE "-framework Security" "-framework CoreFoundation")
+endif()

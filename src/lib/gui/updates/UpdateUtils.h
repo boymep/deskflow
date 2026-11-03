@@ -9,6 +9,7 @@
 #include <QByteArray>
 #include <QList>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
 
 #include <optional>
@@ -98,45 +99,15 @@ bool isAllowedRedirectUrl(const QUrl &url);
 QString bundlePathFromAppDir(const QString &appDir);
 
 /**
- * @brief Checks the output of `codesign -dv` for an ad-hoc signature: "Signature=adhoc" or no
- * "Authority=" line, which means no real certificate signed the app.
+ * @brief The version gate for a downloaded app: its signed bundle version must be the release version
+ * and newer than the running version.
  */
-bool isAdhocSignature(const QString &codesignInfo);
+bool isAcceptableUpdateVersion(const QString &bundleVersion, const QString &releaseVersion, const QString &currentVersion);
 
 /**
- * @brief Takes the designated requirement from the output of `codesign -d -r-`,
- * the text after "designated => ".
- * @return the requirement, or an empty string if there is none.
+ * @brief Arguments for msiexec.exe: install the msi with a progress bar and no questions, no reboot,
+ * a verbose log, and start the app again when done (DESKFLOW_RELAUNCH, see deploy/windows/wix-patch.xml.in).
  */
-QString designatedRequirement(const QString &codesignOutput);
-
-/**
- * @brief The /bin/sh script that installs a macOS update after the app has quit.
- *
- * Arguments: parent pid, new app, target app, work dir, backup path, log file.
- * It waits for the pid to exit, moves the target to the backup, moves the new app into place
- * (restoring the backup on failure), removes the quarantine flag, opens the target and
- * removes the backup and the work dir.
- */
-QString macInstallScript();
-
-/**
- * @brief Quotes text as a single quoted PowerShell string: 'text', with ' doubled.
- */
-QString powerShellQuote(const QString &text);
-
-/**
- * @brief The PowerShell script that installs a Windows update after the app has quit.
- *
- * It waits for the pid to exit, runs msiexec elevated (UAC) in passive mode, starts the app again
- * and removes the work dir.
- */
-QString windowsInstallScript(const QString &msiPath, const QString &exePath, const QString &workDir, qint64 pid);
-
-/**
- * @brief Encodes a script for `powershell -EncodedCommand`: base64 of the UTF-16LE text.
- * This avoids any command line quoting of the script.
- */
-QByteArray powerShellEncodedCommand(const QString &script);
+QStringList msiexecArguments(const QString &msiPath, const QString &logPath);
 
 } // namespace deskflow::gui::updates

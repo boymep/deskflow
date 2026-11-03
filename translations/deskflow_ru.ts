@@ -1402,6 +1402,14 @@ Enabling this setting will disable the server config GUI.</source>
         <source>Check for updates now</source>
         <translation>Проверить обновления сейчас</translation>
     </message>
+    <message>
+        <source>Download, verify and install new versions without asking, then restart</source>
+        <translation>Скачивать, проверять и устанавливать новые версии без вопросов, затем перезапускаться</translation>
+    </message>
+    <message>
+        <source>Install updates automatically</source>
+        <translation>Устанавливать обновления автоматически</translation>
+    </message>
 </context>
 <context>
     <name>SettingsDialogButtonBox</name>
@@ -1480,12 +1488,20 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Доступна новая версия v%1</translation>
     </message>
     <message>
+        <source>Installing version v%1. %2 will restart when it is ready.</source>
+        <translation>Устанавливается версия v%1. %2 перезапустится, когда всё будет готово.</translation>
+    </message>
+    <message>
         <source>View local fingerprint</source>
         <translation>Показать локальный отпечаток</translation>
     </message>
     <message>
         <source>Update available</source>
         <translation>Доступно обновление</translation>
+    </message>
+    <message>
+        <source>Installing update</source>
+        <translation>Установка обновления</translation>
     </message>
     <message>
         <source>%1 is connecting...</source>
@@ -1606,10 +1622,6 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Проверка или загрузка обновления уже выполняется.</translation>
     </message>
     <message>
-        <source>Update available</source>
-        <translation>Доступно обновление</translation>
-    </message>
-    <message>
         <source>%1 %2 is available. You have %3.</source>
         <translation>Доступна версия %1 %2. У вас %3.</translation>
     </message>
@@ -1632,6 +1644,62 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>%1 does not run from an app bundle, so it cannot replace itself.</source>
+        <translation>%1 запущен не из пакета приложения, поэтому не может заменить себя.</translation>
+    </message>
+    <message>
+        <source>You do not have permission to replace %1 in its folder.</source>
+        <translation>У вас нет прав на замену %1 в его папке.</translation>
+    </message>
+    <message>
+        <source>The downloaded update is not signed like the installed app. It was deleted and not installed.</source>
+        <translation>Скачанное обновление подписано не так, как установленное приложение. Оно удалено и не установлено.</translation>
+    </message>
+    <message>
+        <source>The downloaded app is not the expected newer version. It was deleted and not installed.</source>
+        <translation>Скачанное приложение не является ожидаемой новой версией. Оно удалено и не установлено.</translation>
+    </message>
+    <message>
+        <source>The installer could not be started.</source>
+        <translation>Не удалось запустить установщик.</translation>
+    </message>
+    <message>
+        <source>Automatic install is not supported on this system.</source>
+        <translation>Автоматическая установка не поддерживается в этой системе.</translation>
+    </message>
+    <message>
+        <source>The update is shown in %1, you can install it by hand.</source>
+        <translation>Обновление показано в %1, его можно установить вручную.</translation>
+    </message>
+    <message>
+        <source>Details are in %1.</source>
+        <translation>Подробности в %1.</translation>
+    </message>
+    <message>
+        <source>The update was not installed. %1</source>
+        <translation>Обновление не установлено. %1</translation>
+    </message>
+    <message>
+        <source>The downloaded version is shown in %1, you can also install it by hand.</source>
+        <translation>Скачанная версия показана в %1, её также можно установить вручную.</translation>
+    </message>
+    <message>
+        <source>The update could not be installed.</source>
+        <translation>Не удалось установить обновление.</translation>
+    </message>
+    <message>
+        <source>macOS did not allow %1 to replace itself.</source>
+        <translation>macOS не разрешила %1 заменить себя.</translation>
+    </message>
+    <message>
+        <source>To allow automatic updates, open System Settings &gt; Privacy &amp; Security &gt; App Management and turn on %1. Then click &quot;Update available&quot; in the status bar.</source>
+        <translation>Чтобы разрешить автоматические обновления, откройте Системные настройки &gt; Конфиденциальность и безопасность &gt; Управление приложениями и включите %1. Затем нажмите «Доступно обновление» в строке состояния.</translation>
+    </message>
+    <message>
+        <source>Open System Settings</source>
+        <translation>Открыть Системные настройки</translation>
     </message>
     <message>
         <source>Update</source>
@@ -1658,14 +1726,6 @@ Latest release: %2</source>
     <message>
         <source>Unpacking...</source>
         <translation>Распаковка...</translation>
-    </message>
-    <message>
-        <source>The update was downloaded but could not be installed automatically. It is shown in %1, install it by hand.</source>
-        <translation>Обновление загружено, но установить его автоматически не удалось. Оно показано в %1, установите его вручную.</translation>
-    </message>
-    <message>
-        <source>Installing the update. %1 will restart.</source>
-        <translation>Устанавливается обновление. %1 перезапустится.</translation>
     </message>
     <message>
         <source>The update could not be downloaded.

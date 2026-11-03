@@ -7,6 +7,7 @@
 #include "GitHubUpdater.h"
 
 #include "common/Constants.h"
+#include "common/UpdateInstall.h"
 #include "common/VersionInfo.h"
 
 #include <QDir>
@@ -304,7 +305,7 @@ void GitHubUpdater::startZipDownload()
 {
   // a fresh folder per download; it is kept for the install helper, which removes it
   const auto temp = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-  QTemporaryDir workDir(QDir(temp).filePath(QStringLiteral("deskflow-update-XXXXXX")));
+  QTemporaryDir workDir(QDir(temp).filePath(update_install::kWorkDirPrefix + QStringLiteral("XXXXXX")));
   if (!workDir.isValid()) {
     fail(tr("Could not create a temporary folder for the update."));
     return;
@@ -356,7 +357,7 @@ void GitHubUpdater::unpack(const QString &zipPath)
 {
 #if defined(Q_OS_MACOS)
   const auto workDir = QFileInfo(zipPath).absolutePath();
-  m_unpackDir = QDir(workDir).filePath(QStringLiteral("unpacked"));
+  m_unpackDir = QDir(workDir).filePath(update_install::kUnpackDirName);
   if (!QDir().mkdir(m_unpackDir)) {
     fail(tr("Could not create a folder for the update in %1.").arg(workDir));
     return;

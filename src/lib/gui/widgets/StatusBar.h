@@ -12,6 +12,7 @@
 
 class QPushButton;
 class QLabel;
+class QProgressBar;
 
 using ProcessState = deskflow::core::ProcessState;
 using ConnectionState = deskflow::core::ConnectionState;
@@ -30,7 +31,13 @@ public:
   void setSecurityIcon(bool encrypted);
   void setSecurityLevel(const QString &securityLevel);
   void setBtnFingerprintVisible(bool visible);
+  /// Offers an update that is not installed automatically: the "Update available" button.
   void updateFound(const QString &version);
+  /// Shows "Installing update" with a small progress bar while an update installs in the background.
+  void updateInstalling(const QString &version);
+  /// Download progress of the installing update; total <= 0 shows a busy bar.
+  void updateInstallProgress(qint64 received, qint64 total);
+  void updateInstallStopped();
 
 Q_SIGNALS:
   void requestShowMyFingerprints();
@@ -46,6 +53,8 @@ private:
   QLabel *m_lblSecurityIcon = nullptr;
   QLabel *m_lblStatus = nullptr;
   QPushButton *m_btnUpdate = nullptr;
+  QLabel *m_lblInstalling = nullptr;
+  QProgressBar *m_progressInstall = nullptr;
   bool m_encrypted = false;
   QString m_securityLevel;
   int m_connectionInterval = -1;
