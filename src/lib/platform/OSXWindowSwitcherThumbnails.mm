@@ -318,11 +318,11 @@ static NSString *wallpaperKey(NSURL *url, CGFloat scale)
   std::vector<SwitcherWindowId> claimed;
   for (const auto index : deskflow::osx::switcherCaptureOrder(_items.count, _selection, kMaxCaptures)) {
     DeskflowSwitcherItem *item = _items[index];
-    if (item.minimized || item.desktop) {
-      continue; // a desktop has its wallpaper; a minimized window has no current content; keep the cached preview
+    if (item.desktop) {
+      continue; // a desktop has its wallpaper
     }
     const SwitcherCaptureWindow query{
-        item.windowId, item.pid, std::string(item.title.UTF8String ?: ""), rectOf(item.frame)
+        item.windowId, item.pid, std::string(item.title.UTF8String ?: ""), rectOf(CGRectZero)
     };
     const auto match = deskflow::osx::matchSwitcherWindow(query, windows, claimed);
     if (!match.has_value()) {

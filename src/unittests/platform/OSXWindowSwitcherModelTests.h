@@ -15,15 +15,6 @@ private Q_SLOTS:
   void mruTouchOrder();
   void mruBounded();
   void mruRemoveAndRetain();
-  void orderOnScreenFirst();
-  void orderOffScreenByMru();
-  void orderFallbackAppAndIndex();
-  void orderMinimizedIgnoresStaleZ();
-  void orderOtherSpacesMixedByMru();
-  void orderOtherSpacesWithoutOnScreen();
-  void spaceWindowPlausible();
-  void selectDesktopWindows();
-  void desktopWindowsSameFromEverySpace();
   void remoteToken();
   void makeKeyWindowEvent();
   void initialSelection();

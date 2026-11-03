@@ -844,106 +844,45 @@ bool switcherSpacesAvailable()
   return spi().spaces() && spi().focus();
 }
 
-SwitcherSpacesSnapshot switcherSpacesSnapshot(
-    uint32_t displayId, const std::vector<SwitcherPid> &allowed, const std::vector<SwitcherWindowId> &axSwitchable,
-    const std::vector<SwitcherPid> &axAnswered, size_t limit
-)
+SwitcherSpacesSnapshot switcherSpacesSnapshot(uint32_t displayId)
 {
   SwitcherSpacesSnapshot snapshot;
   if (!switcherSpacesAvailable()) {
     return snapshot;
   }
-  const int32_t connection = spi().connection();
-  NSArray *displays = copyDisplays(connection);
+  NSArray *displays = copyDisplays(spi().connection());
   if (displays == nil) {
-    LOG_DEBUG("window switcher: Spaces unknown, listing the current Space only");
+    LOG_DEBUG("window switcher: Spaces unknown");
     return snapshot;
   }
-  std::vector<uint64_t> desktopSpaces;
-  std::vector<uint64_t> visibleSpaces;
-  std::vector<SwitcherWindowId> tileWindows;
-  for (NSDictionary *display in displays) {
-    if (![display isKindOfClass:[NSDictionary class]]) {
-      continue;
-    }
-    if (const uint64_t current = spaceIdOf(display[@"Current Space"]); current != 0) {
-      visibleSpaces.push_back(current);
-    }
-    for (const auto &entry : entriesOf(display)) {
-      if (entry.kind == SwitcherSpaceKind::Desktop) {
-        desktopSpaces.push_back(entry.id);
-      }
-      for (const auto &tile : entry.tiles) {
-        tileWindows.push_back(tile.windowId);
-      }
-    }
-  }
-  if (NSDictionary *display = managedDisplay(displays, displayId); display != nil) {
-    snapshot.strip = switcherSpaceStrip(entriesOf(display), spaceIdOf(display[@"Current Space"]));
-  }
-  if (desktopSpaces.empty() || visibleSpaces.empty()) {
-    LOG_DEBUG("window switcher: Spaces unknown, listing the current Space only");
+  NSDictionary *display = managedDisplay(displays, displayId);
+  if (display == nil) {
     return snapshot;
   }
+  snapshot.strip = switcherSpaceStrip(entriesOf(display), spaceIdOf(display[@"Current Space"]));
+  snapshot.valid = !snapshot.strip.empty();
 
-  CFArrayRef raw =
-      CGWindowListCopyWindowInfo(kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+  // window server titles of the fullscreen windows (empty without the Screen Recording permission)
+  NSMutableArray<NSNumber *> *tileWindows = [NSMutableArray array];
+  for (const auto &space : snapshot.strip) {
+    for (const auto &tile : space.tiles) {
+      [tileWindows addObject:@(tile.windowId)];
+    }
+  }
+  if (tileWindows.count == 0) {
+    return snapshot;
+  }
+  CFArrayRef raw = CGWindowListCreateDescriptionFromArray((__bridge CFArrayRef)tileWindows);
   if (raw == nullptr) {
     return snapshot;
   }
   NSArray *infos = CFBridgingRelease(raw);
-  std::vector<SwitcherSpaceWindow> windows;
-  std::vector<NSString *> titles;
   for (NSDictionary *info in infos) {
-    SwitcherSpaceWindow window;
-    window.windowId = static_cast<SwitcherWindowId>(numberValue(info[(__bridge NSString *)kCGWindowNumber]));
     id name = info[(__bridge NSString *)kCGWindowName];
-    NSString *title = [name isKindOfClass:[NSString class]] ? name : @"";
-    if (std::find(tileWindows.begin(), tileWindows.end(), window.windowId) != tileWindows.end()) {
-      if (title.length > 0) {
-        snapshot.tileTitles[window.windowId] = std::string(title.UTF8String ?: "");
-      }
-      continue; // shown by its strip item
+    if ([name isKindOfClass:[NSString class]] && [name length] > 0) {
+      const auto windowId = static_cast<SwitcherWindowId>(numberValue(info[(__bridge NSString *)kCGWindowNumber]));
+      snapshot.tileTitles[windowId] = std::string([name UTF8String] ?: "");
     }
-    if (windows.size() >= kMaxSpaceQueries) {
-      continue;
-    }
-    window.pid = static_cast<SwitcherPid>([info[(__bridge NSString *)kCGWindowOwnerPID] intValue]);
-    window.layer = [info[(__bridge NSString *)kCGWindowLayer] intValue];
-    id alpha = info[(__bridge NSString *)kCGWindowAlpha];
-    window.alpha = [alpha isKindOfClass:[NSNumber class]] ? [alpha doubleValue] : 1.0;
-    CGRect bounds = CGRectZero;
-    if (NSDictionary *boundsDict = info[(__bridge NSString *)kCGWindowBounds];
-        [boundsDict isKindOfClass:[NSDictionary class]]) {
-      CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)boundsDict, &bounds);
-    }
-    window.frame = {bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height};
-    if (!switcherSpaceWindowPlausible(window, allowed)) {
-      continue;
-    }
-    if (spi().windowIsOrderedIn != nullptr) {
-      bool orderedIn = true;
-      if (spi().windowIsOrderedIn(connection, window.windowId, &orderedIn) == kCGErrorSuccess) {
-        window.orderedIn = orderedIn;
-      }
-    }
-    if (window.orderedIn) {
-      window.spaces = spacesOf(connection, window.windowId);
-    }
-    titles.push_back(title);
-    windows.push_back(std::move(window));
-  }
-
-  snapshot.valid = true;
-  for (const auto index :
-       selectSwitcherDesktopWindows(windows, allowed, desktopSpaces, visibleSpaces, axSwitchable, axAnswered, limit)) {
-    const auto &w = windows[index];
-    const bool visible = std::any_of(w.spaces.begin(), w.spaces.end(), [&](uint64_t space) {
-      return std::find(visibleSpaces.begin(), visibleSpaces.end(), space) != visibleSpaces.end();
-    });
-    snapshot.windows.push_back(
-        SwitcherSpaceWindowInfo{w.windowId, w.pid, std::string(titles[index].UTF8String ?: ""), w.frame, visible}
-    );
   }
   return snapshot;
 }
@@ -1085,11 +1024,6 @@ void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitche
   startSpaceSwitchWhenSettled(session);
 }
 
-bool switcherFocusWindow(SwitcherPid pid, SwitcherWindowId windowId)
-{
-  return focusByWindowServer(pid, windowId, nil);
-}
-
 } // namespace deskflow::osx
 
 @implementation DeskflowSwitcherRemoteWindow
@@ -1147,20 +1081,6 @@ bool switcherFocusWindow(SwitcherPid pid, SwitcherWindowId windowId)
     _cache[key] = window;
   }
   return window;
-}
-
-- (BOOL)isRejected:(uint32_t)windowId
-{
-  return [_rejected containsObject:@(windowId)];
-}
-
-- (void)reject:(const std::vector<SwitcherWindowId> &)windowIds
-{
-  for (const auto id : windowIds) {
-    if (id != 0) {
-      [_rejected addObject:@(id)];
-    }
-  }
 }
 
 - (void)retainWindows:(const std::vector<SwitcherWindowId> &)alive

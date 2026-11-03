@@ -21,16 +21,6 @@ using SwitcherPid = int32_t;
 //! CGWindowID of a window (0 = unknown).
 using SwitcherWindowId = uint32_t;
 
-//! One window offered by the built-in window switcher (pure data, no AppKit).
-struct SwitcherCandidate
-{
-  SwitcherPid pid = 0;
-  SwitcherWindowId windowId = 0; //!< 0 if the CGWindowID could not be resolved
-  int appWindowIndex = 0;        //!< position in the app's Accessibility window list (front to back)
-  bool minimized = false;
-  bool otherSpace = false; //!< on a Space (desktop or fullscreen app) that is not shown right now
-};
-
 //! Most-recently-used order of applications and windows (pure logic).
 /*!
 The platform layer reports app activations and focused windows; both lists are
@@ -60,24 +50,6 @@ private:
   std::vector<SwitcherWindowId> m_windows;
 };
 
-//! Order of \p candidates (indices) as shown by the switcher, most recent first.
-/*!
-Windows on screen come first in window server stacking order \p zOrder (front to
-back), which is their real usage order on the current Space. The others
-(minimized, hidden apps) follow by window MRU rank, then app MRU rank, then
-their position in the app's window list.
-
-Windows on other Spaces are mixed into the on-screen ones by window MRU rank,
-like Windows does: one goes before an on-screen window if it was used more
-recently than that window and every window behind it (stacking order implies
-the window in front was used later). The frontmost window always stays first.
-Without a window MRU rank they follow the on-screen windows like the others.
-*/
-std::vector<size_t> orderSwitcherCandidates(
-    const std::vector<SwitcherCandidate> &candidates, const std::vector<SwitcherWindowId> &zOrder,
-    const SwitcherMru &mru
-);
-
 //! Selection when the switcher opens: the previous window (or the last one if \p reverse).
 size_t switcherInitialSelection(size_t count, bool reverse);
 
@@ -92,45 +64,6 @@ struct SwitcherRect
   double width = 0;
   double height = 0;
 };
-
-//! A window as listed by the window server, with the Spaces it is on (pure data).
-struct SwitcherSpaceWindow
-{
-  SwitcherWindowId windowId = 0;
-  SwitcherPid pid = 0;
-  int layer = 0;
-  double alpha = 1.0;
-  SwitcherRect frame;
-  std::vector<uint64_t> spaces; //!< Space ids; empty if unknown
-  bool orderedIn = true;        //!< ordered in by its app (false: hidden, minimized or kept ordered out)
-};
-
-//! Smallest width and height, in points, of a window from another Space worth listing.
-inline constexpr double kSwitcherMinSpaceWindowSize = 100.0;
-//! Largest width to height ratio (either way) of such a window; flatter ones are toolbar or tab strips.
-inline constexpr double kSwitcherMaxSpaceWindowAspect = 6.0;
-
-//! True if \p window may be a user window: normal level, visible, sensible size and shape, of an \p allowed process.
-/*!
-Checks everything except the Spaces, so it can run before they are looked up.
-*/
-bool switcherSpaceWindowPlausible(const SwitcherSpaceWindow &window, const std::vector<SwitcherPid> &allowed);
-
-//! Indices of \p windows to list in the switcher's window grid, in input order, at most \p limit.
-/*!
-The windows Mission Control shows on its desktops, the same from every Space: plausible
-windows (see switcherSpaceWindowPlausible) that are ordered in (hidden apps, minimized
-windows and windows an app keeps ordered out are not) and whose Spaces are all desktops in
-\p desktopSpaces (drops windows of fullscreen apps, which the Spaces strip shows, of system
-Spaces and on no Space). A window on a Space in \p visibleSpaces is kept only if its process
-is not in \p axAnswered (Accessibility did not list that app) or its id is in \p axSwitchable
-(Accessibility lists it as a standard window). Duplicates are dropped.
-*/
-std::vector<size_t> selectSwitcherDesktopWindows(
-    const std::vector<SwitcherSpaceWindow> &windows, const std::vector<SwitcherPid> &allowed,
-    const std::vector<uint64_t> &desktopSpaces, const std::vector<uint64_t> &visibleSpaces,
-    const std::vector<SwitcherWindowId> &axSwitchable, const std::vector<SwitcherPid> &axAnswered, size_t limit
-);
 
 //! Kind of a Space as reported by the window server.
 enum class SwitcherSpaceKind : uint8_t

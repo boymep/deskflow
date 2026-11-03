@@ -24,15 +24,12 @@
 #error "OSXWindowSwitcher.mm must be compiled with ARC (-fobjc-arc)"
 #endif
 
-using deskflow::osx::SwitcherCandidate;
 using deskflow::osx::SwitcherCommand;
 using deskflow::osx::SwitcherMru;
 using deskflow::osx::SwitcherWindowId;
 
 namespace {
 
-constexpr NSUInteger kMaxWindows = 200;       // whole list
-constexpr CFIndex kMaxWindowsPerApp = 50;     // per application
 constexpr float kAxTimeoutSeconds = 0.1f;     // a hung app must not freeze the switcher
 constexpr int64_t kIdleTimeoutSeconds = 60;   // safety net: never leave the panel up forever
 
@@ -71,26 +68,6 @@ AXUIElementRef createAppElement(pid_t pid)
     AXUIElementSetMessagingTimeout(app, kAxTimeoutSeconds);
   }
   return app;
-}
-
-// windows on screen at the normal window level, front to back
-std::vector<SwitcherWindowId> onScreenWindowOrder()
-{
-  std::vector<SwitcherWindowId> order;
-  CFArrayRef info = CGWindowListCopyWindowInfo(
-      kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID
-  );
-  if (info == nullptr) {
-    return order;
-  }
-  for (NSDictionary *window in (__bridge NSArray *)info) {
-    if ([window[(__bridge NSString *)kCGWindowLayer] integerValue] != 0) {
-      continue;
-    }
-    order.push_back(static_cast<SwitcherWindowId>([window[(__bridge NSString *)kCGWindowNumber] unsignedIntValue]));
-  }
-  CFRelease(info);
-  return order;
 }
 
 } // namespace
@@ -259,170 +236,6 @@ std::vector<SwitcherWindowId> onScreenWindowOrder()
   }
 }
 
-//! Windows of the visible Spaces as Accessibility lists them (switchable ones), front to back per app.
-/*!
-Also reports the ids of the switchable windows, the processes that answered and the ids of
-windows that are not standard windows.
-*/
-- (NSArray<DeskflowSwitcherItem *> *)collectItemsSwitchable:(std::vector<SwitcherWindowId> &)switchable
-                                                    answered:(std::vector<deskflow::osx::SwitcherPid> &)answered
-                                                    rejected:(std::vector<SwitcherWindowId> &)rejected
-{
-  NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray array];
-  const pid_t ownPid = getpid();
-  for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
-    if (items.count >= kMaxWindows) {
-      break;
-    }
-    if (app.activationPolicy != NSApplicationActivationPolicyRegular || app.terminated ||
-        app.processIdentifier == ownPid) {
-      continue;
-    }
-    AXUIElementRef axApp = createAppElement(app.processIdentifier);
-    if (axApp == nullptr) {
-      continue;
-    }
-    NSArray *windows = copyAttribute(axApp, kAXWindowsAttribute);
-    CFRelease(axApp);
-    if (![windows isKindOfClass:[NSArray class]]) {
-      continue;
-    }
-    answered.push_back(app.processIdentifier);
-    NSString *appName = app.localizedName ?: @"";
-    int index = 0;
-    for (id window in windows) {
-      if (index >= kMaxWindowsPerApp || items.count >= kMaxWindows) {
-        break;
-      }
-      auto element = (__bridge AXUIElementRef)window;
-      AXUIElementSetMessagingTimeout(element, kAxTimeoutSeconds);
-      NSArray *attributes = @[
-        (__bridge NSString *)kAXRoleAttribute, (__bridge NSString *)kAXSubroleAttribute,
-        (__bridge NSString *)kAXTitleAttribute, (__bridge NSString *)kAXMinimizedAttribute,
-        (__bridge NSString *)kAXPositionAttribute, (__bridge NSString *)kAXSizeAttribute
-      ];
-      CFArrayRef rawValues = nullptr;
-      if (AXUIElementCopyMultipleAttributeValues(element, (__bridge CFArrayRef)attributes, 0, &rawValues) !=
-              kAXErrorSuccess ||
-          rawValues == nullptr) {
-        continue;
-      }
-      NSArray *values = CFBridgingRelease(rawValues);
-      auto stringAt = ^NSString *(NSUInteger i) {
-        id value = i < values.count ? values[i] : nil;
-        return [value isKindOfClass:[NSString class]] ? value : nil;
-      };
-      NSString *role = stringAt(0);
-      NSString *subrole = stringAt(1);
-      NSString *title = stringAt(2) ?: @"";
-      id minimized = values.count > 3 ? values[3] : nil;
-      CGPoint position = CGPointZero;
-      CGSize size = CGSizeZero;
-      if (values.count > 5) {
-        // used to match the window for a thumbnail when its window id is unknown
-        id positionValue = values[4];
-        id sizeValue = values[5];
-        if (CFGetTypeID((__bridge CFTypeRef)positionValue) == AXValueGetTypeID()) {
-          AXValueGetValue((__bridge AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
-        }
-        if (CFGetTypeID((__bridge CFTypeRef)sizeValue) == AXValueGetTypeID()) {
-          AXValueGetValue((__bridge AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
-        }
-      }
-      const SwitcherWindowId windowId = windowIdOf(element);
-      if (!deskflow::osx::switcherIsSwitchableAXWindow(role, subrole, title)) {
-        if ([role isEqualToString:(__bridge NSString *)kAXWindowRole]) {
-          rejected.push_back(windowId);
-        }
-        continue;
-      }
-      switchable.push_back(windowId);
-
-      DeskflowSwitcherItem *item = [DeskflowSwitcherItem new];
-      item.title = title;
-      item.appName = appName;
-      item.icon = app.icon;
-      item.minimized = [minimized isKindOfClass:[NSNumber class]] && [minimized boolValue];
-      item.appHidden = app.hidden;
-      item.pid = app.processIdentifier;
-      item.windowId = windowId;
-      item.axWindow = window;
-      item.frame = CGRectMake(position.x, position.y, size.width, size.height);
-      [items addObject:item];
-      ++index;
-    }
-  }
-  return items;
-}
-
-//! Regular apps other than this process: the ones whose windows may be listed.
-- (std::vector<deskflow::osx::SwitcherPid>)allowedProcesses
-{
-  std::vector<deskflow::osx::SwitcherPid> allowed;
-  const pid_t ownPid = getpid();
-  for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
-    if (app.activationPolicy == NSApplicationActivationPolicyRegular && !app.terminated &&
-        app.processIdentifier != ownPid) {
-      allowed.push_back(app.processIdentifier);
-    }
-  }
-  return allowed;
-}
-
-//! Grid windows from the window server listing \p windows, with the Accessibility data of \p axItems.
-/*!
-The set does not depend on the current Space: windows of the visible Spaces take their element and
-title from Accessibility, the others from the remote element cache (resolved in the background) or
-the window server title; they stay listed with the app name if neither is known.
-*/
-- (NSArray<DeskflowSwitcherItem *> *)gridItemsFrom:(const std::vector<deskflow::osx::SwitcherSpaceWindowInfo> &)windows
-                                           axItems:(NSArray<DeskflowSwitcherItem *> *)axItems
-{
-  NSMutableDictionary<NSNumber *, DeskflowSwitcherItem *> *byId = [NSMutableDictionary dictionary];
-  for (DeskflowSwitcherItem *item in axItems) {
-    if (item.windowId != 0) {
-      byId[@(item.windowId)] = item;
-    }
-  }
-  NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray array];
-  for (const auto &window : windows) {
-    if (DeskflowSwitcherItem *ax = byId[@(window.windowId)]; ax != nil && window.visible) {
-      if (!ax.minimized && !ax.appHidden) {
-        [items addObject:ax];
-      }
-      continue;
-    }
-    if ([_remote isRejected:window.windowId]) {
-      continue;
-    }
-    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:window.pid];
-    if (app == nil || app.hidden) {
-      continue;
-    }
-    DeskflowSwitcherRemoteWindow *remote = [_remote cachedWindow:window.windowId];
-    if (remote.minimized) {
-      continue;
-    }
-    DeskflowSwitcherItem *item = [DeskflowSwitcherItem new];
-    item.title = remote.title.length > 0 ? remote.title : (@(window.title.c_str()) ?: @"");
-    item.appName = app.localizedName ?: @"";
-    item.icon = app.icon;
-    item.pid = window.pid;
-    item.windowId = window.windowId;
-    item.axWindow = remote.element;
-    item.frame = CGRectMake(window.frame.x, window.frame.y, window.frame.width, window.frame.height);
-    item.otherSpace = !window.visible;
-    [items addObject:item];
-  }
-  // windows Accessibility could not map to a window id cannot be matched: keep them as they are
-  for (DeskflowSwitcherItem *item in axItems) {
-    if (item.windowId == 0 && !item.minimized && !item.appHidden) {
-      [items addObject:item];
-    }
-  }
-  return items;
-}
-
 //! Strip items for \p strip (Spaces of the display \p screen), titled like Mission Control.
 - (NSArray<DeskflowSwitcherItem *> *)stripItemsFrom:(const std::vector<deskflow::osx::SwitcherStripItem> &)strip
                                              screen:(NSScreen *)screen
@@ -496,19 +309,14 @@ the window server title; they stay listed with the app name if neither is known.
   }
 }
 
-//! Looks up Accessibility elements (and titles) of listed windows on other Spaces in the background.
-- (void)resolveOtherSpaceItems
+//! Looks up the titles of the fullscreen windows in the background; also warms the element cache direct switching uses.
+- (void)resolveTileTitles
 {
   std::vector<std::pair<deskflow::osx::SwitcherPid, SwitcherWindowId>> wanted;
-  for (DeskflowSwitcherItem *item in _items) {
-    if (item.otherSpace && item.axWindow == nil) {
-      wanted.emplace_back(item.pid, item.windowId);
-    }
-  }
   for (const auto &tiles : _stripTiles) {
     for (const auto &tile : tiles) {
       if (_tileTitles[@(tile.windowId)].length == 0) {
-        wanted.emplace_back(tile.pid, tile.windowId); // for the title of the strip item
+        wanted.emplace_back(tile.pid, tile.windowId);
       }
     }
   }
@@ -517,36 +325,12 @@ the window server title; they stay listed with the app name if neither is known.
   }
   __weak DeskflowWindowSwitcherController *weakSelf = self;
   [_remote resolve:wanted
-             found:^(uint32_t windowId, DeskflowSwitcherRemoteWindow *window) {
-               [weakSelf applyRemoteWindow:window windowId:windowId];
+             found:^(uint32_t, DeskflowSwitcherRemoteWindow *) {
+               DeskflowWindowSwitcherController *strongSelf = weakSelf;
+               if (strongSelf != nil && strongSelf->_open) {
+                 [strongSelf updateStripTitles];
+               }
              }];
-}
-
-- (void)applyRemoteWindow:(DeskflowSwitcherRemoteWindow *)window windowId:(uint32_t)windowId
-{
-  if (!_open) {
-    return; // cached for the next open
-  }
-  for (const auto &tiles : _stripTiles) {
-    for (const auto &tile : tiles) {
-      if (tile.windowId == windowId) {
-        [self updateStripTitles];
-        return;
-      }
-    }
-  }
-  for (NSUInteger i = 0; i < _items.count; ++i) {
-    DeskflowSwitcherItem *item = _items[i];
-    if (!item.otherSpace || item.windowId != windowId) {
-      continue;
-    }
-    item.axWindow = window.element;
-    if (window.title.length > 0) {
-      item.title = window.title;
-    }
-    [_panel refreshItemAtIndex:i];
-    return;
-  }
 }
 
 - (void)open:(BOOL)reverse
@@ -554,7 +338,7 @@ the window server title; they stay listed with the app name if neither is known.
   [self hidePanel];
   if (!AXIsProcessTrusted()) {
     if (!_warnedUntrusted) {
-      LOG_WARN("window switcher: accessibility permission missing, cannot list windows");
+      LOG_WARN("window switcher: accessibility permission missing, cannot switch Spaces");
       _warnedUntrusted = YES;
     }
     return;
@@ -563,63 +347,24 @@ the window server title; they stay listed with the app name if neither is known.
 
   const auto started = CFAbsoluteTimeGetCurrent();
   // the frontmost window may have changed without an app activation (e.g. Command+`)
-  SwitcherWindowId focused = 0;
   if (NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
       front != nil && front.processIdentifier != getpid()) {
-    focused = [self focusedWindowIdOf:front.processIdentifier];
-    _mru.touchWindow(front.processIdentifier, focused);
+    _mru.touchWindow(front.processIdentifier, [self focusedWindowIdOf:front.processIdentifier]);
   }
-
-  std::vector<SwitcherWindowId> axSwitchable;
-  std::vector<deskflow::osx::SwitcherPid> axAnswered;
-  std::vector<SwitcherWindowId> axRejected;
-  NSArray<DeskflowSwitcherItem *> *axItems = [self collectItemsSwitchable:axSwitchable
-                                                                 answered:axAnswered
-                                                                 rejected:axRejected];
-  [_remote reject:axRejected];
 
   // Spaces of the display under the mouse pointer (Control+Arrow switches that one; the panel shows there)
   NSScreen *screen = [DeskflowSwitcherPanel screenWithMouse];
   NSNumber *displayId = screen.deviceDescription[@"NSScreenNumber"];
   const uint32_t spacesDisplay =
       [displayId isKindOfClass:[NSNumber class]] ? displayId.unsignedIntValue : CGMainDisplayID();
-  const auto snapshot = deskflow::osx::switcherSpacesSnapshot(
-      spacesDisplay, [self allowedProcesses], axSwitchable, axAnswered, kMaxWindows
-  );
+  const auto snapshot = deskflow::osx::switcherSpacesSnapshot(spacesDisplay);
   NSMutableDictionary<NSNumber *, NSString *> *tileTitles = [NSMutableDictionary dictionary];
   for (const auto &[windowId, title] : snapshot.tileTitles) {
     tileTitles[@(windowId)] = @(title.c_str());
   }
-  for (DeskflowSwitcherItem *item in axItems) {
-    if (item.windowId != 0 && item.title.length > 0) {
-      tileTitles[@(item.windowId)] = item.title; // the fullscreen window of the current Space
-    }
-  }
   _tileTitles = tileTitles;
 
-  // without Spaces: the windows Accessibility reports, as before
-  NSArray<DeskflowSwitcherItem *> *found = snapshot.valid ? [self gridItemsFrom:snapshot.windows axItems:axItems]
-                                                          : axItems;
-  std::vector<SwitcherCandidate> candidates;
   std::vector<SwitcherWindowId> alive;
-  candidates.reserve(found.count);
-  for (DeskflowSwitcherItem *item in found) {
-    // windows of the same app are reported front to back; index counts within the app
-    int appIndex = 0;
-    for (const auto &c : candidates) {
-      if (c.pid == item.pid) {
-        ++appIndex;
-      }
-    }
-    candidates.push_back(
-        SwitcherCandidate{
-            item.pid, item.windowId, appIndex, static_cast<bool>(item.minimized), static_cast<bool>(item.otherSpace)
-        }
-    );
-    if (item.windowId != 0) {
-      alive.push_back(item.windowId);
-    }
-  }
   for (const auto &space : snapshot.strip) {
     for (const auto &tile : space.tiles) {
       alive.push_back(tile.windowId);
@@ -628,34 +373,22 @@ the window server title; they stay listed with the app name if neither is known.
   _mru.retainWindows(alive);
   [_remote retainWindows:alive];
 
-  // strip first (Mission Control order), then the windows by recent use
-  NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray array];
-  [items addObjectsFromArray:[self stripItemsFrom:snapshot.strip screen:screen displayId:spacesDisplay]];
-  for (const auto index : deskflow::osx::orderSwitcherCandidates(candidates, onScreenWindowOrder(), _mru)) {
-    [items addObject:found[index]];
-  }
-  _items = items;
+  _items = [self stripItemsFrom:snapshot.strip screen:screen displayId:spacesDisplay];
   if (_items.count == 0) {
-    LOG_DEBUG("window switcher: no windows to switch to");
+    LOG_DEBUG("window switcher: no Spaces to switch to");
     return;
   }
   [self updateStripTitles];
 
   std::vector<deskflow::osx::SwitcherSelectable> selectables;
   for (NSUInteger i = 0; i < _items.count; ++i) {
-    DeskflowSwitcherItem *item = _items[i];
     deskflow::osx::SwitcherSelectable selectable;
-    selectable.window = !item.space;
-    if (item.space) {
-      selectable.current = item.currentSpace;
-      for (const auto &tile : i < _stripTiles.size() ? _stripTiles[i] : std::vector<deskflow::osx::SwitcherTile>{}) {
-        if (const auto rank = _mru.windowRank(tile.windowId); rank && (!selectable.rank || *rank < *selectable.rank)) {
-          selectable.rank = rank;
-        }
+    selectable.window = false;
+    selectable.current = _items[i].currentSpace;
+    for (const auto &tile : i < _stripTiles.size() ? _stripTiles[i] : std::vector<deskflow::osx::SwitcherTile>{}) {
+      if (const auto rank = _mru.windowRank(tile.windowId); rank && (!selectable.rank || *rank < *selectable.rank)) {
+        selectable.rank = rank;
       }
-    } else {
-      selectable.current = focused != 0 && item.windowId == focused && !item.otherSpace;
-      selectable.rank = _mru.windowRank(item.windowId);
     }
     selectables.push_back(selectable);
   }
@@ -670,12 +403,11 @@ the window server title; they stay listed with the app name if neither is known.
     [_thumbnailer applyCachedThumbnailsTo:_items];
   }
   [self applyWallpapers];
-  [_panel showItems:_items selection:_selection thumbnails:thumbnails];
+  [_panel showItems:_items selection:_selection];
   [self loadWallpapers];
-  [self resolveOtherSpaceItems];
+  [self resolveTileTitles];
   LOG_DEBUG(
-      "window switcher: opened with %lu Spaces and %lu windows in %.0f ms%s",
-      static_cast<unsigned long>(snapshot.strip.size()), static_cast<unsigned long>(found.count),
+      "window switcher: opened with %lu Spaces in %.0f ms%s", static_cast<unsigned long>(snapshot.strip.size()),
       (CFAbsoluteTimeGetCurrent() - started) * 1000.0, thumbnails ? ", with thumbnails" : ""
   );
   if (thumbnails) {
@@ -784,47 +516,9 @@ the window server title; they stay listed with the app name if neither is known.
 
 - (void)activate:(DeskflowSwitcherItem *)item
 {
-  if (item.space) {
-    if (!item.currentSpace) {
-      deskflow::osx::switcherSwitchToSpace(item.spaceDisplay, item.spaceId, _remote);
-    }
-    return;
+  if (item.space && !item.currentSpace) {
+    deskflow::osx::switcherSwitchToSpace(item.spaceDisplay, item.spaceId, _remote);
   }
-  NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:item.pid];
-  if (app == nil || app.terminated) {
-    return;
-  }
-  auto window = (__bridge AXUIElementRef)item.axWindow;
-  if (app.hidden) {
-    [app unhide];
-  }
-  if (window != nullptr && item.minimized) {
-    AXUIElementSetAttributeValue(window, kAXMinimizedAttribute, kCFBooleanFalse);
-  }
-  // a window on another Space (or one without an element): focus it through the window server,
-  // which switches to its Space
-  if ((item.otherSpace || window == nullptr) && deskflow::osx::switcherFocusWindow(item.pid, item.windowId)) {
-    if (window != nullptr) {
-      AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
-      AXUIElementPerformAction(window, kAXRaiseAction);
-    }
-    _mru.touchWindow(item.pid, item.windowId);
-    return;
-  }
-  // Accessibility brings the app forward even though this background process is not active
-  if (AXUIElementRef axApp = createAppElement(item.pid); axApp != nullptr) {
-    AXUIElementSetAttributeValue(axApp, kAXFrontmostAttribute, kCFBooleanTrue);
-    if (window != nullptr) {
-      AXUIElementSetAttributeValue(axApp, kAXFocusedWindowAttribute, window);
-    }
-    CFRelease(axApp);
-  }
-  if (window != nullptr) {
-    AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
-    AXUIElementPerformAction(window, kAXRaiseAction);
-  }
-  [app activateWithOptions:0];
-  _mru.touchWindow(item.pid, item.windowId);
 }
 
 @end

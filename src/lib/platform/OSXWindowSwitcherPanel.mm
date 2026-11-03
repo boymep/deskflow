@@ -13,53 +13,24 @@
 namespace {
 
 // layout, in points
-constexpr CGFloat kIconSize = 64;
 constexpr CGFloat kTitleHeight = 16;
-constexpr CGFloat kCellSpacing = 6;
-constexpr CGFloat kPanelPadding = 16;
+constexpr CGFloat kCellSpacing = 8;
+constexpr CGFloat kPanelPadding = 18;
 constexpr CGFloat kHeaderHeight = 20;
 constexpr CGFloat kHeaderGap = 10;
 constexpr CGFloat kCornerRadius = 18;
 constexpr CGFloat kSelectionRadius = 10;
-constexpr NSUInteger kMaxVisibleRows = 3;
 
-// icon-only tiles
-constexpr CGFloat kCellPadding = 12;
-constexpr CGFloat kCellWidth = 128;
-constexpr CGFloat kCellHeight = kCellPadding + kIconSize + 8 + kTitleHeight + kCellPadding;
-constexpr NSUInteger kMaxColumns = 8;
-
-// thumbnail tiles: preview on top, app icon overlaid at its bottom, title below
+// Space tiles: preview on top, app icon overlaid at its bottom (fullscreen apps), title below
 constexpr CGFloat kThumbPadding = 10;
-constexpr CGFloat kThumbBoxWidth = 200;
-constexpr CGFloat kThumbBoxHeight = 124;
+constexpr CGFloat kStripBoxWidth = 220;
+constexpr CGFloat kStripBoxHeight = 138;
 constexpr CGFloat kThumbTitleGap = 6;
-constexpr CGFloat kThumbCellWidth = kThumbBoxWidth + 2 * kThumbPadding;
-constexpr CGFloat kThumbCellHeight = kThumbPadding + kThumbBoxHeight + kThumbTitleGap + kTitleHeight + kThumbPadding;
-constexpr CGFloat kThumbRadius = 6;
-constexpr CGFloat kOverlayIconSize = 32;
-constexpr NSUInteger kThumbMaxColumns = 7;
-
-// Spaces strip: smaller thumbnail tiles in one row above the grid
-constexpr CGFloat kStripBoxWidth = 160;
-constexpr CGFloat kStripBoxHeight = 100;
 constexpr CGFloat kStripCellWidth = kStripBoxWidth + 2 * kThumbPadding;
 constexpr CGFloat kStripCellHeight = kThumbPadding + kStripBoxHeight + kThumbTitleGap + kTitleHeight + kThumbPadding;
-constexpr CGFloat kStripIconSize = 24;
-constexpr CGFloat kSectionGap = 8;
-
-struct GridLayout
-{
-  CGFloat cellWidth;
-  CGFloat cellHeight;
-  NSUInteger maxColumns;
-};
-
-GridLayout gridLayout(BOOL thumbnails)
-{
-  return thumbnails ? GridLayout{kThumbCellWidth, kThumbCellHeight, kThumbMaxColumns}
-                    : GridLayout{kCellWidth, kCellHeight, kMaxColumns};
-}
+constexpr CGFloat kThumbRadius = 6;
+constexpr CGFloat kOverlayIconSize = 32;
+constexpr CGFloat kPlaceholderIconSize = 56;
 
 // largest rect with \p size's aspect ratio inside \p box, centered, never scaled up
 NSRect aspectFit(NSSize size, NSRect box)
@@ -123,34 +94,27 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
 }
 @end
 
-//! One grid cell: icon or thumbnail, one-line title, selection highlight.
+//! One Space tile: thumbnail (wallpaper or fullscreen app), one-line title, selection highlight.
 @interface DeskflowSwitcherItemView : NSView
 @property(nonatomic, strong) DeskflowSwitcherItem *item;
 @property(nonatomic, assign) BOOL selected;
-@property(nonatomic, assign) BOOL thumbnails; //!< thumbnail tile layout
-@property(nonatomic, assign) NSSize boxSize;  //!< thumbnail area of a thumbnail tile
 @property(nonatomic, strong) NSTextField *titleField;
 @end
 
 @implementation DeskflowSwitcherItemView
 
-- (instancetype)initWithItem:(DeskflowSwitcherItem *)item frame:(NSRect)frame thumbnails:(BOOL)thumbnails
+- (instancetype)initWithItem:(DeskflowSwitcherItem *)item frame:(NSRect)frame
 {
   if ((self = [super initWithFrame:frame])) {
     _item = item;
-    _thumbnails = thumbnails || item.space;
-    _boxSize = item.space ? NSMakeSize(kStripBoxWidth, kStripBoxHeight) : NSMakeSize(kThumbBoxWidth, kThumbBoxHeight);
-    thumbnails = _thumbnails;
-    const CGFloat padding = thumbnails ? kThumbPadding : kCellPadding;
-
     _titleField = [NSTextField labelWithString:displayTitle(item)];
     _titleField.font = [NSFont systemFontOfSize:12];
     _titleField.alignment = NSTextAlignmentCenter;
     _titleField.lineBreakMode = NSLineBreakByTruncatingTail;
     _titleField.maximumNumberOfLines = 1;
     _titleField.cell.truncatesLastVisibleLine = YES;
-    _titleField.textColor = (item.minimized || item.appHidden) ? NSColor.secondaryLabelColor : NSColor.labelColor;
-    _titleField.frame = NSMakeRect(6, padding - 2, frame.size.width - 12, kTitleHeight + 2);
+    _titleField.textColor = NSColor.labelColor;
+    _titleField.frame = NSMakeRect(6, kThumbPadding - 2, frame.size.width - 12, kTitleHeight + 2);
     [self addSubview:_titleField];
   }
   return self;
@@ -169,14 +133,6 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
   }
 }
 
-- (NSRect)iconRect
-{
-  const NSRect b = self.bounds;
-  return NSMakeRect(
-      floor((b.size.width - kIconSize) / 2), b.size.height - kCellPadding - kIconSize, kIconSize, kIconSize
-  );
-}
-
 - (void)drawRect:(NSRect)dirtyRect
 {
   if (self.selected) {
@@ -189,39 +145,15 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
     path.lineWidth = 2.5;
     [path stroke];
   }
-
-  if (self.thumbnails) {
-    [self drawThumbnailTile];
-    return;
-  }
-
-  const NSRect iconRect = [self iconRect];
-  NSImage *icon = self.item.icon ?: [NSImage imageNamed:NSImageNameApplicationIcon];
-  const CGFloat alpha = (self.item.minimized || self.item.appHidden) ? 0.45 : 1.0;
-  [icon drawInRect:iconRect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:alpha];
-
-  if (self.item.minimized) {
-    [self drawMinimizedBadgeAt:NSMakePoint(NSMaxX(iconRect) + 2, NSMinY(iconRect) - 2)];
-  }
-}
-
-//! A small dash in a pill whose bottom right corner is \p corner.
-- (void)drawMinimizedBadgeAt:(NSPoint)corner
-{
-  const NSRect badge = NSMakeRect(corner.x - 24, corner.y, 24, 16);
-  NSBezierPath *pill = [NSBezierPath bezierPathWithRoundedRect:badge xRadius:8 yRadius:8];
-  [NSColor.controlAccentColor setFill];
-  [pill fill];
-  [[NSColor colorWithWhite:1 alpha:0.95] setFill];
-  NSRectFill(NSMakeRect(NSMidX(badge) - 5, NSMidY(badge) - 1, 10, 2));
+  [self drawThumbnailTile];
 }
 
 - (NSRect)thumbnailBox
 {
   const NSRect b = self.bounds;
-  const NSSize box = self.boxSize;
   return NSMakeRect(
-      floor((b.size.width - box.width) / 2), b.size.height - kThumbPadding - box.height, box.width, box.height
+      floor((b.size.width - kStripBoxWidth) / 2), b.size.height - kThumbPadding - kStripBoxHeight, kStripBoxWidth,
+      kStripBoxHeight
   );
 }
 
@@ -257,11 +189,10 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
 {
   DeskflowSwitcherItem *item = self.item;
   NSImage *icon = item.icon ?: [NSImage imageNamed:NSImageNameApplicationIcon];
-  const BOOL dimmed = item.minimized || item.appHidden;
   const NSRect box = [self thumbnailBox];
 
-  const CGFloat placeholderIcon = item.space ? 48 : kIconSize;
-  const CGFloat overlayIcon = item.space ? kStripIconSize : kOverlayIconSize;
+  const CGFloat placeholderIcon = kPlaceholderIconSize;
+  const CGFloat overlayIcon = kOverlayIconSize;
 
   if (item.thumbnail == nil) {
     // placeholder until the preview arrives (or if it cannot be captured): the app icon
@@ -273,13 +204,7 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
           floor(NSMidX(box) - placeholderIcon / 2), floor(NSMidY(box) - placeholderIcon / 2), placeholderIcon,
           placeholderIcon
       );
-      [icon drawInRect:iconRect
-              fromRect:NSZeroRect
-             operation:NSCompositingOperationSourceOver
-              fraction:dimmed ? 0.45 : 1.0];
-      if (item.minimized) {
-        [self drawMinimizedBadgeAt:NSMakePoint(NSMaxX(iconRect) + 2, NSMinY(iconRect) - 2)];
-      }
+      [icon drawInRect:iconRect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
     }
     [self drawCurrentMarkIn:box];
     return;
@@ -292,7 +217,7 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
   [item.thumbnail drawInRect:imageRect
                     fromRect:NSZeroRect
                    operation:NSCompositingOperationSourceOver
-                    fraction:dimmed ? 0.55 : 1.0];
+                    fraction:1.0];
   [NSGraphicsContext restoreGraphicsState];
   [[NSColor.separatorColor colorWithAlphaComponent:0.6] setStroke];
   NSBezierPath *border = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(imageRect, 0.5, 0.5)
@@ -318,9 +243,6 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
   [shadow set];
   [icon drawInRect:iconRect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
   [NSGraphicsContext restoreGraphicsState];
-  if (item.minimized) {
-    [self drawMinimizedBadgeAt:NSMakePoint(NSMaxX(imageRect) - 4, NSMinY(imageRect) + 4)];
-  }
 }
 
 @end
@@ -337,7 +259,7 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
 
 + (NSSize)thumbnailBoxSize
 {
-  return NSMakeSize(kThumbBoxWidth, kThumbBoxHeight);
+  return NSMakeSize(kStripBoxWidth, kStripBoxHeight);
 }
 
 - (NSPanel *)ensurePanel
@@ -401,41 +323,16 @@ static NSScrollView *makeScroll(NSView *document, NSRect frame, BOOL horizontal)
 - (NSView *)buildContentForItems:(NSArray<DeskflowSwitcherItem *> *)items
                        selection:(NSUInteger)selection
                      screenFrame:(NSRect)screenFrame
-                      thumbnails:(BOOL)thumbnails
 {
-  // the strip: the leading Space items; the grid: the windows after them
-  NSUInteger stripCount = 0;
-  while (stripCount < items.count && items[stripCount].space) {
-    ++stripCount;
-  }
-  const NSUInteger count = items.count - stripCount;
-  const GridLayout layout = gridLayout(thumbnails);
-  const CGFloat cellWidth = layout.cellWidth;
-  const CGFloat cellHeight = layout.cellHeight;
+  const NSUInteger count = items.count;
   const CGFloat maxContentWidth = screenFrame.size.width * 0.9 - 2 * kPanelPadding;
 
-  // grid: as many columns as fit on the screen (at most layout.maxColumns), rows wrap, extra rows scroll
-  NSUInteger fitColumns = (NSUInteger)MAX(1.0, floor((maxContentWidth + kCellSpacing) / (cellWidth + kCellSpacing)));
-  const NSUInteger columns = MAX((NSUInteger)1, MIN(MIN(count, layout.maxColumns), fitColumns));
-  const NSUInteger rows = count == 0 ? 0 : (count + columns - 1) / columns;
-  const CGFloat stripHeight = stripCount > 0 ? kStripCellHeight + kSectionGap : 0;
-  const CGFloat usableHeight =
-      screenFrame.size.height * 0.8 - 2 * kPanelPadding - kHeaderHeight - kHeaderGap - stripHeight;
-  NSUInteger fitRows = (NSUInteger)MAX(1.0, floor((usableHeight + kCellSpacing) / (cellHeight + kCellSpacing)));
-  const NSUInteger visibleRows = MIN(rows, MIN(kMaxVisibleRows, fitRows));
-  const CGFloat gridWidth = count == 0 ? 0 : columns * cellWidth + (columns - 1) * kCellSpacing;
-  const CGFloat gridHeight = rows == 0 ? 0 : rows * cellHeight + (rows - 1) * kCellSpacing;
-  const CGFloat visibleGridHeight = visibleRows == 0 ? 0 : visibleRows * cellHeight + (visibleRows - 1) * kCellSpacing;
-
-  // strip: one row, scrolls sideways if it does not fit
-  const CGFloat stripWidth =
-      stripCount == 0 ? 0 : stripCount * kStripCellWidth + (stripCount - 1) * kCellSpacing;
+  // one row of Space tiles, centered; scrolls sideways if it does not fit
+  const CGFloat stripWidth = count == 0 ? 0 : count * kStripCellWidth + (count - 1) * kCellSpacing;
   const CGFloat visibleStripWidth = MIN(stripWidth, maxContentWidth);
-
-  const CGFloat contentWidth = MAX(MAX(gridWidth, visibleStripWidth), kStripCellWidth);
-  const CGFloat gridGap = count > 0 ? kHeaderGap : 0;
+  const CGFloat contentWidth = MAX(visibleStripWidth, kStripCellWidth);
   const NSSize size = NSMakeSize(
-      contentWidth + 2 * kPanelPadding, 2 * kPanelPadding + stripHeight + kHeaderHeight + gridGap + visibleGridHeight
+      contentWidth + 2 * kPanelPadding, 2 * kPanelPadding + kStripCellHeight + kHeaderGap + kHeaderHeight
   );
 
   NSView *root = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height)];
@@ -452,27 +349,21 @@ static NSScrollView *makeScroll(NSView *document, NSRect frame, BOOL horizontal)
   background.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   [root addSubview:background];
 
-  NSMutableArray<DeskflowSwitcherItemView *> *views = [NSMutableArray arrayWithCapacity:items.count];
-  CGFloat top = size.height - kPanelPadding;
-
-  if (stripCount > 0) {
-    NSView *strip = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, stripWidth, kStripCellHeight)];
-    for (NSUInteger i = 0; i < stripCount; ++i) {
-      const CGFloat x = i * (kStripCellWidth + kCellSpacing);
-      DeskflowSwitcherItemView *view =
-          [[DeskflowSwitcherItemView alloc] initWithItem:items[i]
-                                                    frame:NSMakeRect(x, 0, kStripCellWidth, kStripCellHeight)
-                                               thumbnails:YES];
-      [strip addSubview:view];
-      [views addObject:view];
-    }
-    const NSRect frame = NSMakeRect(
-        kPanelPadding + floor((contentWidth - visibleStripWidth) / 2), top - kStripCellHeight, visibleStripWidth,
-        kStripCellHeight
-    );
-    [root addSubview:makeScroll(strip, frame, YES)];
-    top -= stripHeight;
+  NSMutableArray<DeskflowSwitcherItemView *> *views = [NSMutableArray arrayWithCapacity:count];
+  NSView *strip = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, stripWidth, kStripCellHeight)];
+  for (NSUInteger i = 0; i < count; ++i) {
+    const CGFloat x = i * (kStripCellWidth + kCellSpacing);
+    DeskflowSwitcherItemView *view =
+        [[DeskflowSwitcherItemView alloc] initWithItem:items[i]
+                                                  frame:NSMakeRect(x, 0, kStripCellWidth, kStripCellHeight)];
+    [strip addSubview:view];
+    [views addObject:view];
   }
+  const NSRect stripFrame = NSMakeRect(
+      kPanelPadding + floor((contentWidth - visibleStripWidth) / 2), size.height - kPanelPadding - kStripCellHeight,
+      visibleStripWidth, kStripCellHeight
+  );
+  [root addSubview:makeScroll(strip, stripFrame, YES)];
 
   NSTextField *header = [NSTextField labelWithString:@""];
   header.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
@@ -480,29 +371,8 @@ static NSScrollView *makeScroll(NSView *document, NSRect frame, BOOL horizontal)
   header.alignment = NSTextAlignmentCenter;
   header.lineBreakMode = NSLineBreakByTruncatingTail;
   header.maximumNumberOfLines = 1;
-  header.frame = NSMakeRect(kPanelPadding, top - kHeaderHeight, contentWidth, kHeaderHeight);
+  header.frame = NSMakeRect(kPanelPadding, kPanelPadding, contentWidth, kHeaderHeight);
   [root addSubview:header];
-  top -= kHeaderHeight + gridGap;
-
-  if (count > 0) {
-    NSView *grid = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, gridWidth, gridHeight)];
-    for (NSUInteger i = 0; i < count; ++i) {
-      const NSUInteger row = i / columns;
-      const NSUInteger column = i % columns;
-      const CGFloat x = column * (cellWidth + kCellSpacing);
-      const CGFloat y = gridHeight - (row + 1) * cellHeight - row * kCellSpacing;
-      DeskflowSwitcherItemView *view =
-          [[DeskflowSwitcherItemView alloc] initWithItem:items[stripCount + i]
-                                                    frame:NSMakeRect(x, y, cellWidth, cellHeight)
-                                               thumbnails:thumbnails];
-      [grid addSubview:view];
-      [views addObject:view];
-    }
-    const NSRect frame = NSMakeRect(
-        kPanelPadding + floor((contentWidth - gridWidth) / 2), top - visibleGridHeight, gridWidth, visibleGridHeight
-    );
-    [root addSubview:makeScroll(grid, frame, NO)];
-  }
 
   self.itemViews = views;
   self.header = header;
@@ -510,18 +380,13 @@ static NSScrollView *makeScroll(NSView *document, NSRect frame, BOOL horizontal)
   return root;
 }
 
-- (void)showItems:(NSArray<DeskflowSwitcherItem *> *)items
-        selection:(NSUInteger)selection
-       thumbnails:(BOOL)thumbnails
+- (void)showItems:(NSArray<DeskflowSwitcherItem *> *)items selection:(NSUInteger)selection
 {
   NSScreen *screen = [DeskflowSwitcherPanel screenWithMouse];
   const NSRect screenFrame = screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900);
   self.backingScale = screen ? screen.backingScaleFactor : 2.0;
   NSPanel *panel = [self ensurePanel];
-  NSView *content = [self buildContentForItems:items
-                                     selection:selection
-                                   screenFrame:screenFrame
-                                    thumbnails:thumbnails];
+  NSView *content = [self buildContentForItems:items selection:selection screenFrame:screenFrame];
   const NSSize size = content.frame.size;
   panel.contentView = content;
   const NSRect frame = NSMakeRect(
@@ -547,11 +412,7 @@ static NSScrollView *makeScroll(NSView *document, NSRect frame, BOOL horizontal)
   }
   DeskflowSwitcherItemView *selected = self.itemViews[self.selection];
   DeskflowSwitcherItem *item = selected.item;
-  NSString *title = displayTitle(item);
-  if (item.title.length > 0 && item.appName.length > 0 && ![item.title isEqualToString:item.appName]) {
-    title = [NSString stringWithFormat:@"%@ — %@", item.title, item.appName];
-  }
-  self.header.stringValue = title;
+  self.header.stringValue = displayTitle(item);
   [selected scrollRectToVisible:NSInsetRect(selected.bounds, 0, -kCellSpacing)];
 }
 

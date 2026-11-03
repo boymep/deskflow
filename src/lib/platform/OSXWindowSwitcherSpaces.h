@@ -28,22 +28,11 @@ behaviour. Window titles are never logged.
 
 namespace deskflow::osx {
 
-//! A window of the switcher's window grid as listed by the window server.
-struct SwitcherSpaceWindowInfo
-{
-  SwitcherWindowId windowId = 0;
-  SwitcherPid pid = 0;
-  std::string title; //!< UTF-8 window server title; empty without the Screen Recording permission
-  SwitcherRect frame;
-  bool visible = false; //!< on a Space shown right now
-};
-
-//! Spaces and desktop windows, as Mission Control shows them.
+//! The Spaces strip of one display, as Mission Control shows it.
 struct SwitcherSpacesSnapshot
 {
-  bool valid = false; //!< false: Spaces unknown, list the windows Accessibility reports instead
+  bool valid = false; //!< false: Spaces unknown, the strip is empty
   std::vector<SwitcherStripItem> strip;          //!< Spaces of the display asked for, Mission Control order
-  std::vector<SwitcherSpaceWindowInfo> windows;  //!< grid windows of all displays, front to back
   std::map<SwitcherWindowId, std::string> tileTitles; //!< window server titles of fullscreen windows, if known
 };
 
@@ -53,17 +42,11 @@ bool switcherIsSwitchableAXWindow(NSString *_Nullable role, NSString *_Nullable 
 //! True if Spaces can be listed and windows on other Spaces activated (all private calls found). Thread safe.
 bool switcherSpacesAvailable();
 
-//! The Spaces strip of display \p displayId (CGDirectDisplayID) and the windows of the grid.
+//! The Spaces strip of display \p displayId (CGDirectDisplayID) and the known titles of its fullscreen windows.
 /*!
-Main thread. Windows are those of \p allowed processes chosen by selectSwitcherDesktopWindows
-(\p axSwitchable and \p axAnswered come from the Accessibility listing of the visible Spaces),
-at most \p limit. One or two window server calls per window; invalid if switcherSpacesAvailable()
-is false or a call fails.
+Main thread. Invalid (empty strip) if switcherSpacesAvailable() is false or a call fails.
 */
-SwitcherSpacesSnapshot switcherSpacesSnapshot(
-    uint32_t displayId, const std::vector<SwitcherPid> &allowed, const std::vector<SwitcherWindowId> &axSwitchable,
-    const std::vector<SwitcherPid> &axAnswered, size_t limit
-);
+SwitcherSpacesSnapshot switcherSpacesSnapshot(uint32_t displayId);
 
 //! Windows of the fullscreen Spaces shown right now (all displays); empty if none or unknown.
 std::vector<SwitcherTile> switcherVisibleFullscreenWindows();
@@ -85,12 +68,6 @@ does not land within a second, if anybody else switches Spaces meanwhile, or whe
 starts. Each method and step is logged at INFO.
 */
 void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitcherRemoteWindows *_Nullable remote);
-
-//! Brings window \p windowId of \p pid to the front and makes it key; macOS switches to its Space.
-/*!
-Main thread. Returns false (nothing done) if the private calls are missing or fail.
-*/
-bool switcherFocusWindow(SwitcherPid pid, SwitcherWindowId windowId);
 
 } // namespace deskflow::osx
 
@@ -118,10 +95,6 @@ and results are cached per window id until the window disappears.
 - (nullable DeskflowSwitcherRemoteWindow *)windowNow:(uint32_t)windowId
                                                  pid:(pid_t)pid
                                               budget:(CFAbsoluteTime)budget;
-//! True if \p windowId turned out not to be a standard window; it should not be listed.
-- (BOOL)isRejected:(uint32_t)windowId;
-//! Marks \p windowIds as not standard windows (Accessibility listed them on a visible Space).
-- (void)reject:(const std::vector<deskflow::osx::SwitcherWindowId> &)windowIds;
 //! Forgets every window not in \p alive.
 - (void)retainWindows:(const std::vector<deskflow::osx::SwitcherWindowId> &)alive;
 //! Searches the windows in \p wanted (pid, window id) that are not cached yet; \p found runs on the main
