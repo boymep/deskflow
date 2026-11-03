@@ -16,7 +16,7 @@
 #include <deskflow/unix/XkbLayoutsParser.h>
 #elif defined(Q_OS_MACOS)
 #include <Carbon/Carbon.h>
-#include <platform/OSXAutoTypes.h>
+#include <platform/OSXInputSourceCache.h>
 #endif
 
 AppUtilUnix::AppUtilUnix(const IEventQueue *)
@@ -42,39 +42,17 @@ std::vector<std::string> AppUtilUnix::getKeyboardLayoutList()
   layoutLangCodes = XkbLayoutsParser::getXkbLanguageList();
 
 #elif defined(Q_OS_MACOS)
-  CFStringRef keys[] = {kTISPropertyInputSourceCategory};
-  CFStringRef values[] = {kTISCategoryKeyboardInputSource};
-  AutoCFDictionary dict(
-      CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
-  );
-  AutoCFArray kbds(nullptr, CFRelease);
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    kbds = AutoCFArray(TISCreateInputSourceList(dict.get(), false), CFRelease);
-  }
-
-  for (CFIndex i = 0; i < CFArrayGetCount(kbds.get()); ++i) {
-    TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(kbds.get(), i);
-    CFArrayRef layoutLanguages = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(g_tisMutex);
-      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceLanguages);
+  // input sources are read on the main thread (TIS asserts it runs there)
+  const auto inputSources = deskflow::osx::InputSourceCache::instance().refreshAndWait();
+  for (const auto &group : *inputSources->groups) {
+    // save only the first language code
+    if (group.languages.empty()) {
+      continue;
     }
-    char temporaryCString[128] = {0};
-    for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
-      auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
-      if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
-        continue;
-      }
-
-      std::string langCode(temporaryCString);
-      if (langCode.size() == 2 &&
-          std::find(layoutLangCodes.begin(), layoutLangCodes.end(), langCode) == layoutLangCodes.end()) {
-        layoutLangCodes.push_back(langCode);
-      }
-
-      // Save only first language code
-      break;
+    const auto &langCode = group.languages.front();
+    if (langCode.size() == 2 &&
+        std::find(layoutLangCodes.begin(), layoutLangCodes.end(), langCode) == layoutLangCodes.end()) {
+      layoutLangCodes.push_back(langCode);
     }
   }
 #endif
@@ -138,23 +116,10 @@ std::string AppUtilUnix::getCurrentLanguageCode()
   result = XkbLayoutsParser::convertLayoutToISO(result);
 
 #elif defined(Q_OS_MACOS)
-  AutoTISInputSourceRef source(nullptr, CFRelease);
-  CFArrayRef layoutLanguages = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    source = AutoTISInputSourceRef(TISCopyCurrentKeyboardInputSource(), CFRelease);
-    if (source)
-      layoutLanguages = (CFArrayRef)TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceLanguages);
-  }
-  char temporaryCString[128] = {0};
-  for (CFIndex index = 0; layoutLanguages && index < CFArrayGetCount(layoutLanguages); index++) {
-    auto languageCode = (CFStringRef)CFArrayGetValueAtIndex(layoutLanguages, index);
-    if (!languageCode || !CFStringGetCString(languageCode, temporaryCString, 128, kCFStringEncodingUTF8)) {
-      continue;
-    }
-
-    result = std::string(temporaryCString);
-    break;
+  // called for every key on the server's core thread: read the cache, TIS is main thread only
+  const auto inputSources = deskflow::osx::InputSourceCache::instance().snapshot();
+  if (!inputSources->currentLanguages.empty()) {
+    result = inputSources->currentLanguages.front();
   }
 #endif
   return result;

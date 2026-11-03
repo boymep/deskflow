@@ -124,8 +124,6 @@ private:
   bool getKeyMap(deskflow::KeyMap &keyMap, int32_t group, const IOSXKeyResource &r) const;
 
   // Get the available keyboard groups
-  bool getGroups(AutoCFArray &) const;
-
   // Change active keyboard group to group
   void setGroup(int32_t group);
 
@@ -179,8 +177,6 @@ private:
 
   // Windows server keyboard mode: key layout data of the PC variant of the
   // current input source, or null if there is none.
-  CFDataRef windowsTextLayoutData();
-
 private:
   // OS X uses a physical key if 0 for the 'A' key.  deskflow reserves
   // KeyButton 0 so we offset all OS X physical key ids by this much
@@ -191,12 +187,12 @@ private:
     KeyButtonOffset = 1
   };
 
-  using GroupMap = std::map<CFDataRef, int32_t>;
+  using GroupMap = std::map<std::string, int32_t>; // input source id -> group
   using VirtualKeyMap = std::map<uint32_t, KeyID>;
 
   VirtualKeyMap m_virtualKeyMap;
   mutable uint32_t m_deadKeyState;
-  AutoCFArray m_groups{nullptr, CFRelease};
+  std::vector<std::string> m_groupIds; // input source id per group
   GroupMap m_groupMap;
   bool m_shiftPressed;
   bool m_controlPressed;
@@ -215,6 +211,5 @@ private:
   // built-in window switcher (null unless Alt+Tab mode is builtin)
   std::unique_ptr<deskflow::osx::OSXWindowSwitcher> m_windowSwitcher;
   // PC layout used for Windows characters, cached per current input source
-  AutoTISInputSourceRef m_windowsTextSource{nullptr, CFRelease};
   std::string m_windowsTextSourceFor;
 };

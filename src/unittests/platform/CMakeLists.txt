@@ -25,6 +25,13 @@ elseif(APPLE)
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
   )
   create_test(
+    NAME OSXMainThreadTests
+    DEPENDS platform
+    LIBS base arch
+    SOURCE OSXMainThreadTests.cpp
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
+  )
+  create_test(
     NAME OSXWindowsKeyboardTests
     DEPENDS platform
     LIBS base arch

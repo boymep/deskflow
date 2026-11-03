@@ -96,10 +96,14 @@ elseif(APPLE)
     OSXComputer.mm
     OSXEventQueueBuffer.cpp
     OSXEventQueueBuffer.h
+    OSXInputSourceCache.cpp
+    OSXInputSourceCache.h
     OSXKeyLayoutResource.cpp
     OSXKeyLayoutResource.h
     OSXKeyState.cpp
     OSXKeyState.h
+    OSXMainThread.cpp
+    OSXMainThread.h
     OSXMediaKeySupport.h
     OSXMediaKeySupport.m
     OSXPasteboardPeeker.h

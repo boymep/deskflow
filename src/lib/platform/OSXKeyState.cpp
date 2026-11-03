@@ -8,11 +8,15 @@
 #include "platform/OSXKeyState.h"
 #include "arch/Arch.h"
 #include "base/Log.h"
+#include "platform/OSXInputSourceCache.h"
 #include "platform/OSXKeyLayoutResource.h"
+#include "platform/OSXMainThread.h"
 #include "platform/OSXMediaKeySupport.h"
 
 #include <Carbon/Carbon.h>
 #include <IOKit/hidsystem/IOHIDLib.h>
+
+#include <atomic>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -182,33 +186,6 @@ bool isModifier(uint8_t virtualKey)
   return (modifiers.find(virtualKey) != modifiers.end());
 }
 
-AutoTISInputSourceRef copyKeyboardLayoutForKeyTranslation()
-{
-  std::lock_guard<std::mutex> lock(g_tisMutex);
-
-  AutoTISInputSourceRef keyboardLayout(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-  AutoTISInputSourceRef inputSource(TISCopyCurrentKeyboardInputSource(), CFRelease);
-
-  const bool inputSourceHasLayout =
-      inputSource && TISGetInputSourceProperty(inputSource.get(), kTISPropertyUnicodeKeyLayoutData) != nullptr;
-
-  CFBooleanRef isSelectCapable = nullptr;
-  if (keyboardLayout) {
-    isSelectCapable =
-        (CFBooleanRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceIsSelectCapable);
-  }
-  const bool keyboardLayoutIsSelectCapable = isSelectCapable && CFBooleanGetValue(isSelectCapable);
-
-  if (inputSource && keyboardLayout && !inputSourceHasLayout && !keyboardLayoutIsSelectCapable) {
-    AutoTISInputSourceRef asciiKeyboardLayout(TISCopyCurrentASCIICapableKeyboardLayoutInputSource(), CFRelease);
-    if (asciiKeyboardLayout) {
-      return asciiKeyboardLayout;
-    }
-  }
-
-  return keyboardLayout;
-}
-
 } // namespace
 
 //
@@ -247,6 +224,9 @@ void OSXKeyState::init()
 
     m_virtualKeyMap[s_controlKeys[i].m_virtualKey] = s_controlKeys[i].m_keyID;
   }
+
+  // read the input sources on the main thread now, before key events need them
+  deskflow::osx::InputSourceCache::instance().snapshot();
 }
 
 KeyModifierMask OSXKeyState::mapModifiersFromOSX(uint32_t mask) const
@@ -332,16 +312,10 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
     return mapVirtualKeyToKeyButton(vkCode);
   }
 
-  // get keyboard info
-  AutoTISInputSourceRef currentKeyboardLayout = copyKeyboardLayoutForKeyTranslation();
-  CFDataRef ref = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    if (currentKeyboardLayout)
-      ref = (CFDataRef)TISGetInputSourceProperty(currentKeyboardLayout.get(), kTISPropertyUnicodeKeyLayoutData);
-  }
-
-  if (!currentKeyboardLayout) {
+  // get keyboard info; this runs on the event tap thread, so it reads the
+  // input source cache instead of calling TIS (main thread only)
+  const auto inputSources = deskflow::osx::InputSourceCache::instance().snapshot();
+  if (!inputSources->hasTranslationSource) {
     return kKeyNone;
   }
 
@@ -371,7 +345,8 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
   }
 
   // translate via uchr resource
-  const UCKeyboardLayout *layout = (const UCKeyboardLayout *)CFDataGetBytePtr(ref);
+  const auto &layoutData = inputSources->translationLayout;
+  const auto *layout = layoutData.empty() ? nullptr : reinterpret_cast<const UCKeyboardLayout *>(layoutData.data());
   const bool layoutValid = (layout != nullptr);
 
   if (layoutValid) {
@@ -380,7 +355,7 @@ KeyButton OSXKeyState::mapKeyFromEvent(KeyIDs &ids, KeyModifierMask *maskOut, CG
     UniChar chars[2];
     LOG_VERBOSE("modifiers: %08x", modifiers & 0xffu);
     OSStatus status = UCKeyTranslate(
-        layout, vkCode & 0xffu, action, (modifiers >> 8) & 0xffu, LMGetKbdType(), 0, &m_deadKeyState,
+        layout, vkCode & 0xffu, action, (modifiers >> 8) & 0xffu, inputSources->keyboardType, 0, &m_deadKeyState,
         sizeof(chars) / sizeof(chars[0]), &count, chars
     );
 
@@ -472,16 +447,9 @@ KeyModifierMask OSXKeyState::pollActiveModifiers() const
 
 int32_t OSXKeyState::pollActiveGroup() const
 {
-  AutoTISInputSourceRef keyboardLayout(nullptr, CFRelease);
-  CFDataRef id = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    keyboardLayout = AutoTISInputSourceRef(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-    if (keyboardLayout)
-      id = (CFDataRef)TISGetInputSourceProperty(keyboardLayout.get(), kTISPropertyInputSourceID);
-  }
-
-  GroupMap::const_iterator i = m_groupMap.find(id);
+  // called from the core thread: read the cached current layout, TIS is main thread only
+  const auto inputSources = deskflow::osx::InputSourceCache::instance().snapshot();
+  GroupMap::const_iterator i = m_groupMap.find(inputSources->currentLayoutId);
   if (i != m_groupMap.end()) {
     return i->second;
   }
@@ -507,44 +475,31 @@ void OSXKeyState::pollPressedKeys(KeyButtonSet &pressedKeys) const
 
 void OSXKeyState::getKeyMap(deskflow::KeyMap &keyMap)
 {
-  // update keyboard groups
+  // update keyboard groups (read on the main thread, see InputSourceCache)
+  const auto inputSources = deskflow::osx::InputSourceCache::instance().refreshAndWait();
+  const auto &groups = *inputSources->groups;
   int32_t numGroups{0};
-  if (getGroups(m_groups)) {
+  if (!groups.empty()) {
     m_groupMap.clear();
-    numGroups = CFArrayGetCount(m_groups.get());
+    m_groupIds.clear();
+    numGroups = static_cast<int32_t>(groups.size());
     for (int32_t g = 0; g < numGroups; ++g) {
-      TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-      CFDataRef id = nullptr;
-      {
-        std::lock_guard<std::mutex> lock(g_tisMutex);
-        id = (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyInputSourceID);
-      }
-      m_groupMap[id] = g;
+      m_groupMap[groups[g].id] = g;
+      m_groupIds.push_back(groups[g].id);
     }
+  } else {
+    LOG_VERBOSE("can't get keyboard layouts");
   }
 
-  uint32_t keyboardType = LMGetKbdType();
+  const uint32_t keyboardType = inputSources->keyboardType;
   for (int32_t g = 0; g < numGroups; ++g) {
     // add special keys
     getKeyMapForSpecialKeys(keyMap, g);
 
-    const void *resource;
-    bool layoutValid = false;
-
     // add regular keys from the layout's key data
-    TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), g);
-    CFDataRef resourceRef = nullptr;
-    {
-      std::lock_guard<std::mutex> lock(g_tisMutex);
-      resourceRef = (CFDataRef)TISGetInputSourceProperty(keyboardLayout, kTISPropertyUnicodeKeyLayoutData);
-    }
-
-    layoutValid = resourceRef != nullptr;
-    if (layoutValid)
-      resource = CFDataGetBytePtr(resourceRef);
-
-    if (layoutValid) {
-      OSXKeyLayoutResource keyResource(resource, keyboardType);
+    const auto &resource = groups[g].layout;
+    if (!resource.empty()) {
+      OSXKeyLayoutResource keyResource(resource.data(), keyboardType);
       if (keyResource.isValid()) {
         LOG_VERBOSE("using key layout for group %d", g);
         getKeyMap(keyMap, g, keyResource);
@@ -931,54 +886,22 @@ void OSXKeyState::handleModifierKey(void *target, uint32_t virtualKey, KeyID id,
   sendKeyEvent(target, down, false, id, newMask, 0, button);
 }
 
-bool OSXKeyState::getGroups(AutoCFArray &groups) const
-{
-  // get number of layouts
-  CFStringRef keys[] = {kTISPropertyInputSourceCategory};
-  CFStringRef values[] = {kTISCategoryKeyboardInputSource};
-  AutoCFDictionary dict(
-      CFDictionaryCreate(nullptr, (const void **)keys, (const void **)values, 1, nullptr, nullptr), CFRelease
-  );
-  AutoCFArray kbds(nullptr, CFRelease);
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    kbds = AutoCFArray(TISCreateInputSourceList(dict.get(), false), CFRelease);
-  }
-
-  if (CFArrayGetCount(kbds.get()) > 0) {
-    groups = std::move(kbds);
-  } else {
-    LOG_VERBOSE("can't get keyboard layouts");
-    return false;
-  }
-
-  return true;
-}
-
 void OSXKeyState::setGroup(int32_t group)
 {
-  TISInputSourceRef keyboardLayout = (TISInputSourceRef)CFArrayGetValueAtIndex(m_groups.get(), group);
-  if (!keyboardLayout) {
+  if (group < 0 || static_cast<size_t>(group) >= m_groupIds.size()) {
     LOG_WARN("needed keyboard layout is null");
     return;
   }
-  CFBooleanRef canBeSetted = nullptr;
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    AutoTISInputSourceRef source(TISCopyCurrentKeyboardInputSource(), CFRelease);
-    if (source)
-      canBeSetted = (CFBooleanRef)TISGetInputSourceProperty(source.get(), kTISPropertyInputSourceIsEnableCapable);
-  }
-  if (!canBeSetted) {
-    LOG_WARN("needed keyboard layout is disabled for programmatically selection");
-    return;
-  }
 
-  {
-    std::lock_guard<std::mutex> lock(g_tisMutex);
-    if (TISSelectInputSource(keyboardLayout) != noErr) {
-      LOG_WARN("failed to set needed keyboard layout");
-    }
+  // TISSelectInputSource must run on the main thread. Wait (bounded) so the
+  // key that follows is posted after the switch; the block owns its data, so a
+  // timeout only makes the switch late. See runOnMainThreadAndWait.
+  auto selected = std::make_shared<std::atomic<bool>>(false);
+  deskflow::osx::runOnMainThreadAndWait([id = m_groupIds[group], selected] {
+    selected->store(deskflow::osx::InputSourceCache::instance().selectInputSourceOnMain(id));
+  });
+  if (!selected->load()) {
+    return;
   }
 
   LOG_VERBOSE("keyboard layout change to %d", group);
@@ -1029,18 +952,6 @@ const KeyModifierMask s_lockModifiers = KeyModifierCapsLock | KeyModifierNumLock
 // UCKeyTranslate keyboard type for the PC layouts: an ANSI type, so that
 // kVK_ANSI_Grave is the key left of 1 (RussianWin maps it to ] with ISO types).
 const UInt32 s_ansiKeyboardType = 40;
-
-std::string toStdString(CFStringRef string)
-{
-  if (string == nullptr) {
-    return {};
-  }
-  char buffer[256] = {};
-  if (!CFStringGetCString(string, buffer, sizeof(buffer), kCFStringEncodingUTF8)) {
-    return {};
-  }
-  return buffer;
-}
 
 } // namespace
 
@@ -1166,52 +1077,25 @@ void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &ac
 
 void OSXKeyState::selectNextInputSource()
 {
-  // enabled keyboard layouts and input modes the user can switch to, in system order
-  const void *keys[] = {kTISPropertyInputSourceCategory, kTISPropertyInputSourceIsSelectCapable};
-  const void *values[] = {kTISCategoryKeyboardInputSource, kCFBooleanTrue};
-  AutoCFDictionary filter(
-      CFDictionaryCreate(nullptr, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks),
-      CFRelease
-  );
-  if (!filter) {
-    return;
-  }
-
-  std::lock_guard<std::mutex> lock(g_tisMutex);
-  AutoCFArray sources(TISCreateInputSourceList(filter.get(), false), CFRelease);
-  AutoTISInputSourceRef current(TISCopyCurrentKeyboardInputSource(), CFRelease);
-  // bounded: a Mac has a handful of input sources
-  constexpr CFIndex kMaxSources = 64;
-  const CFIndex count = sources ? std::min(CFArrayGetCount(sources.get()), kMaxSources) : 0;
-  if (count < 2 || !current) {
-    LOG_DEBUG("input source switch: nothing to switch to");
-    return;
-  }
-
-  CFIndex currentIndex = -1;
-  const auto currentId = static_cast<CFStringRef>(TISGetInputSourceProperty(current.get(), kTISPropertyInputSourceID));
-  for (CFIndex i = 0; i < count && currentId != nullptr; ++i) {
-    auto source = static_cast<TISInputSourceRef>(const_cast<void *>(CFArrayGetValueAtIndex(sources.get(), i)));
-    const auto id = static_cast<CFStringRef>(TISGetInputSourceProperty(source, kTISPropertyInputSourceID));
-    if (id != nullptr && CFEqual(id, currentId)) {
-      currentIndex = i;
-      break;
-    }
-  }
-
-  const CFIndex next = (currentIndex + 1) % count;
-  auto target = static_cast<TISInputSourceRef>(const_cast<void *>(CFArrayGetValueAtIndex(sources.get(), next)));
-  if (TISSelectInputSource(target) != noErr) {
-    LOG_WARN("failed to switch input source");
-  } else {
-    LOG_DEBUG("input source switched (%d of %d)", static_cast<int>(next), static_cast<int>(count));
-  }
+  // reached from the network thread; TIS runs on the main thread. Waiting keeps
+  // the following text keys ordered after the switch (bounded, no deadlock).
+  deskflow::osx::runOnMainThreadAndWait([] {
+    deskflow::osx::InputSourceCache::instance().selectNextInputSourceOnMain();
+  });
 }
 
 bool OSXKeyState::postWindowsTextKey(const deskflow::osx::KeyAction &action)
 {
-  CFDataRef layoutData = windowsTextLayoutData();
-  if (layoutData == nullptr) {
+  // network thread: the PC variant layout data comes from the cache (TIS is main thread only)
+  const auto inputSources = deskflow::osx::InputSourceCache::instance().snapshot();
+  if (inputSources->currentLayoutId != m_windowsTextSourceFor) {
+    m_windowsTextSourceFor = inputSources->currentLayoutId;
+    LOG_DEBUG(
+        "windows keyboard: input source %s uses %s characters", m_windowsTextSourceFor.c_str(),
+        inputSources->windowsTextLayout.empty() ? "mac" : "windows"
+    );
+  }
+  if (inputSources->windowsTextLayout.empty()) {
     return false;
   }
 
@@ -1226,7 +1110,7 @@ bool OSXKeyState::postWindowsTextKey(const deskflow::osx::KeyAction &action)
   UInt32 deadKeyState = 0;
   UniChar chars[4] = {};
   UniCharCount length = 0;
-  const auto *layout = reinterpret_cast<const UCKeyboardLayout *>(CFDataGetBytePtr(layoutData));
+  const auto *layout = reinterpret_cast<const UCKeyboardLayout *>(inputSources->windowsTextLayout.data());
   const OSStatus status = UCKeyTranslate(
       layout, action.textKey, kUCKeyActionDown, modifierState, s_ansiKeyboardType, kUCKeyTranslateNoDeadKeysMask,
       &deadKeyState, sizeof(chars) / sizeof(chars[0]), &length, chars
@@ -1255,61 +1139,4 @@ bool OSXKeyState::postWindowsTextKey(const deskflow::osx::KeyAction &action)
     CFRelease(event);
   }
   return true;
-}
-
-CFDataRef OSXKeyState::windowsTextLayoutData()
-{
-  std::lock_guard<std::mutex> lock(g_tisMutex);
-
-  AutoTISInputSourceRef current(TISCopyCurrentKeyboardLayoutInputSource(), CFRelease);
-  if (!current) {
-    return nullptr;
-  }
-  const auto currentId =
-      toStdString(static_cast<CFStringRef>(TISGetInputSourceProperty(current.get(), kTISPropertyInputSourceID)));
-
-  if (currentId != m_windowsTextSourceFor) {
-    m_windowsTextSourceFor = currentId;
-    m_windowsTextSource.reset();
-
-    if (deskflow::osx::isPcLayout(currentId)) {
-      m_windowsTextSource = std::move(current);
-    } else {
-      // the PC variant does not need to be enabled in System Settings
-      for (const auto &candidate : deskflow::osx::pcLayoutCandidates(currentId)) {
-        CFStringRef candidateId = CFStringCreateWithCString(nullptr, candidate.c_str(), kCFStringEncodingUTF8);
-        if (candidateId == nullptr) {
-          continue;
-        }
-        const void *keys[] = {kTISPropertyInputSourceID};
-        const void *values[] = {candidateId};
-        AutoCFDictionary filter(
-            CFDictionaryCreate(
-                nullptr, keys, values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks
-            ),
-            CFRelease
-        );
-        CFRelease(candidateId);
-        if (!filter) {
-          continue;
-        }
-        AutoCFArray sources(TISCreateInputSourceList(filter.get(), true), CFRelease);
-        if (sources && CFArrayGetCount(sources.get()) > 0) {
-          auto source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources.get(), 0);
-          CFRetain(source);
-          m_windowsTextSource.reset(source);
-          break;
-        }
-      }
-    }
-    LOG_DEBUG(
-        "windows keyboard: input source %s uses %s characters", currentId.c_str(),
-        m_windowsTextSource ? "windows" : "mac"
-    );
-  }
-
-  if (!m_windowsTextSource) {
-    return nullptr;
-  }
-  return static_cast<CFDataRef>(TISGetInputSourceProperty(m_windowsTextSource.get(), kTISPropertyUnicodeKeyLayoutData));
 }
