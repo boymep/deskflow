@@ -469,7 +469,7 @@ void OSXWindowsKeyboardTests::mapperCtrlShiftChord()
   QCOMPARE(describe(out), QString("+37 +38"));
   out.clear();
   m.keyUp(kScLShift, out);
-  QCOMPARE(describe(out), QString("S -38"));
+  QCOMPARE(describe(out), QString("-38 S")); // release first, then switch
   out.clear();
   m.keyUp(kScLCtrl, out);
   QCOMPARE(describe(out), QString("-37"));
@@ -480,7 +480,7 @@ void OSXWindowsKeyboardTests::mapperCtrlShiftChord()
   m.keyDown(kScRCtrl, out);
   out.clear();
   m.keyUp(kScRCtrl, out);
-  QCOMPARE(describe(out), QString("S -36"));
+  QCOMPARE(describe(out), QString("-36 S"));
   out.clear();
   m.keyUp(kScRShift, out);
   QCOMPARE(describe(out), QString("-3c"));
@@ -552,6 +552,84 @@ void OSXWindowsKeyboardTests::mapperCtrlShiftChordCancelled()
   off.keyUp(kScLShift, out);
   off.keyUp(kScLCtrl, out);
   QCOMPARE(switches(out), 0);
+}
+
+void OSXWindowsKeyboardTests::mapperCtrlShiftChordStrict()
+{
+  uint64_t now = 1000;
+  WindowsKeyboardMapper m(true, AltTabMode::System, true, [&now] { return now; });
+  auto switches = [](const KeyActions &out) {
+    int n = 0;
+    for (const auto &a : out)
+      n += a.switchInputSource ? 1 : 0;
+    return n;
+  };
+  auto tap = [&](uint64_t holdMs) {
+    KeyActions out;
+    m.keyDown(kScLCtrl, out);
+    m.keyDown(kScLShift, out);
+    now += holdMs;
+    m.keyUp(kScLShift, out);
+    m.keyUp(kScLCtrl, out);
+    now += 1000;
+    return out;
+  };
+
+  // a quick tap switches and reports its duration
+  auto out = tap(120);
+  QCOMPARE(switches(out), 1);
+  for (const auto &a : out)
+    if (a.switchInputSource)
+      QCOMPARE(a.chordMs, 120u);
+
+  // held too long (e.g. Ctrl+Shift held while thinking or dragging): nothing
+  QCOMPARE(switches(tap(WindowsKeyboardMapper::kChordMaxMs + 1)), 0);
+  QCOMPARE(switches(tap(WindowsKeyboardMapper::kChordMaxMs)), 1);
+
+  // a mouse click or wheel in between (Ctrl+Shift+click selects)
+  out.clear();
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScLShift, out);
+  m.otherInput();
+  m.keyUp(kScLShift, out);
+  m.keyUp(kScLCtrl, out);
+  QCOMPARE(switches(out), 0);
+
+  // a key without a Mac key (Caps Lock 0x3a, posted by key id) in between
+  out.clear();
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScLShift, out);
+  QVERIFY(!m.keyDown(0x3a, out));
+  m.keyUp(kScLShift, out);
+  m.keyUp(kScLCtrl, out);
+  QCOMPARE(switches(out), 0);
+
+  // fast typing: a letter still held when Ctrl and Shift go down
+  out.clear();
+  m.keyDown(kScA, out);
+  m.keyDown(kScLCtrl, out);
+  m.keyDown(kScLShift, out);
+  m.keyUp(kScLShift, out);
+  m.keyUp(kScLCtrl, out);
+  m.keyUp(kScA, out);
+  QCOMPARE(switches(out), 0);
+
+  // Windows fake shifts (E0 2A / E0 36) post nothing and are not a Shift press
+  out.clear();
+  QVERIFY(m.keyDown(0x12a, out));
+  QVERIFY(m.keyUp(0x12a, out));
+  QVERIFY(m.keyDown(0x136, out));
+  QVERIFY(m.keyUp(0x136, out));
+  QVERIFY(out.empty());
+  m.keyDown(kScLCtrl, out);
+  QVERIFY(m.keyDown(0x12a, out));
+  m.keyUp(kScLCtrl, out);
+  QVERIFY(m.keyUp(0x12a, out));
+  QCOMPARE(switches(out), 0);
+  QCOMPARE(m.postedModifiers(), MacModifiers(0));
+
+  // still works afterwards
+  QCOMPARE(switches(tap(80)), 1);
 }
 
 void OSXWindowsKeyboardTests::altTabModeNames()

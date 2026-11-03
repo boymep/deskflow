@@ -14,6 +14,8 @@
 #include <Carbon/Carbon.h>
 
 #include <algorithm>
+#include <chrono>
+#include <string>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -26,6 +28,23 @@
 namespace deskflow::osx {
 
 namespace {
+
+std::atomic<int64_t> g_remoteKeyEventMs{0}; // steady clock ms of the last key event posted for the server
+
+int64_t steadyNowMs()
+{
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+//! "N ms ago" of a steady clock timestamp, or "never".
+std::string agoText(int64_t thenMs)
+{
+  if (thenMs == 0) {
+    return "never";
+  }
+  return std::to_string(steadyNowMs() - thenMs) + " ms ago";
+}
 
 std::string toStdString(CFStringRef string)
 {
@@ -177,7 +196,7 @@ void onInputSourcesChanged(CFNotificationCenterRef, void *, CFNotificationName n
     if (enabledChanged) {
       cache.refreshAllOnMain();
     } else {
-      cache.refreshCurrentOnMain();
+      cache.selectionChangedOnMain();
     }
   });
 }
@@ -253,6 +272,33 @@ void InputSourceCache::refreshCurrentOnMain()
   store(std::move(next));
 }
 
+void InputSourceCache::noteRemoteKeyEvent()
+{
+  g_remoteKeyEventMs.store(steadyNowMs());
+}
+
+void InputSourceCache::selectionChangedOnMain()
+{
+  if (!requireMainThread(__func__)) {
+    return;
+  }
+  const std::string before = load()->currentLayoutId;
+  refreshCurrentOnMain();
+  const std::string after = load()->currentLayoutId;
+  if (before == after) {
+    return; // already seen (e.g. the client's own selection re-reads the source at once)
+  }
+  constexpr int64_t kOwnSelectWindowMs = 1000;
+  const int64_t own = m_ownSelectMs.load();
+  const bool byClient = own != 0 && steadyNowMs() - own < kOwnSelectWindowMs;
+  LOG_INFO(
+      "input source changed: %s -> %s, %s; last key event posted for the server: %s", before.c_str(), after.c_str(),
+      byClient ? "requested by deskflow"
+               : "NOT requested by deskflow (macOS shortcut, Caps Lock / Globe key or another app)",
+      agoText(g_remoteKeyEventMs.load()).c_str()
+  );
+}
+
 void InputSourceCache::refreshAllOnMain()
 {
   if (!requireMainThread(__func__)) {
@@ -283,8 +329,12 @@ bool InputSourceCache::selectInputSourceOnMain(const std::string &id)
     LOG_WARN("needed keyboard layout is disabled for programmatically selection");
     return false;
   }
+  m_ownSelectMs.store(steadyNowMs());
+  const std::string before = load()->currentLayoutId;
   if (TISSelectInputSource(target.get()) != noErr) {
     LOG_WARN("failed to set needed keyboard layout");
+  } else if (before != id) {
+    LOG_INFO("input source: deskflow selects %s (language sync), was %s", id.c_str(), before.c_str());
   }
   refreshCurrentOnMain();
   return true;
@@ -329,10 +379,13 @@ void InputSourceCache::selectNextInputSourceOnMain()
 
   const CFIndex next = (currentIndex + 1) % count;
   auto target = static_cast<TISInputSourceRef>(const_cast<void *>(CFArrayGetValueAtIndex(sources.get(), next)));
+  m_ownSelectMs.store(steadyNowMs());
   if (TISSelectInputSource(target) != noErr) {
     LOG_WARN("failed to switch input source");
   } else {
-    LOG_DEBUG("input source switched (%d of %d)", static_cast<int>(next), static_cast<int>(count));
+    LOG_INFO(
+        "input source: deskflow selected the next one (%d of %d)", static_cast<int>(next) + 1, static_cast<int>(count)
+    );
   }
   refreshCurrentOnMain();
 }

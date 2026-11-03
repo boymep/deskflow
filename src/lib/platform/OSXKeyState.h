@@ -98,6 +98,8 @@ public:
   bool fakeMediaKey(KeyID id) override;
   KeyModifierMask pollActiveModifiers() const override;
 
+  //! A remote mouse button press or wheel event: cancels a remote Ctrl+Shift tap in progress.
+  void remoteMouseInput();
   int32_t pollActiveGroup() const override;
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
 

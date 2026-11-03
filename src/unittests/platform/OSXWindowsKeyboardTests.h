@@ -31,6 +31,7 @@ private Q_SLOTS:
   void mapperAltTabDisabled();
   void mapperCtrlShiftChord();
   void mapperCtrlShiftChordCancelled();
+  void mapperCtrlShiftChordStrict();
   void altTabModeNames();
   void mapperBuiltinOpenNavigateCommit();
   void mapperBuiltinShiftOpensReverse();

@@ -973,6 +973,13 @@ void OSXKeyState::enableWindowsKeyboard(const deskflow::osx::WindowsKeyboardOpti
   );
 }
 
+void OSXKeyState::remoteMouseInput()
+{
+  if (m_windowsKeyboard) {
+    m_windowsKeyboard->otherInput();
+  }
+}
+
 void OSXKeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang)
 {
   if (!m_windowsKeyboard) {
@@ -988,8 +995,10 @@ void OSXKeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, 
   }
 
   // no physical equivalent (media and lock keys): use the character, but
-  // ignore the server's language, like with language sync off
-  LOG_DEBUG("windows keyboard: no mac key for server button %03x, using key id %04x", button, id);
+  // ignore the server's language, like with language sync off. Logged at INFO: Caps Lock from the
+  // server can switch the Mac input source (macOS "Caps Lock switches to and from ABC").
+  LOG_INFO("windows keyboard: no mac key for server button %03x, posting key id %04x", button, id);
+  deskflow::osx::InputSourceCache::noteRemoteKeyEvent();
   KeyState::fakeKeyDown(id, mask & s_lockModifiers, button, std::string());
 }
 
@@ -1027,6 +1036,10 @@ void OSXKeyState::fakeAllKeysUp()
   if (m_windowsKeyboard) {
     deskflow::osx::KeyActions actions;
     m_windowsKeyboard->allKeysUp(actions);
+    if (!actions.empty()) {
+      // posted without a key event from the server (screen leave, disconnect)
+      LOG_INFO("windows keyboard: all keys up, releasing %zu keys held for the server", actions.size());
+    }
     postWindowsKeyboardActions(actions);
   }
   KeyState::fakeAllKeysUp();
@@ -1043,6 +1056,7 @@ void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &ac
       }
       continue;
     case Kind::SwitchInputSource:
+      LOG_INFO("input source: remote ctrl+shift tap (%u ms), selecting the next one", action.chordMs);
       selectNextInputSource();
       continue;
     case Kind::None:
@@ -1051,6 +1065,7 @@ void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &ac
     case Kind::Key:
       break;
     }
+    deskflow::osx::InputSourceCache::noteRemoteKeyEvent();
     if (action.virtualKey == kVK_ANSI_A) {
       LOG_DEBUG(
           "posting kVK_ANSI_A %s (from remote key event, modifier=%d, repeat=%d, text=%d)", action.down ? "down" : "up",

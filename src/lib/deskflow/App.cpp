@@ -22,6 +22,8 @@
 
 #include <stdexcept>
 
+#include <QDir>
+
 #if defined(Q_OS_MACOS)
 #include <ApplicationServices/ApplicationServices.h>
 #endif
@@ -128,7 +130,19 @@ void App::setupFileLogging()
     m_fileLog = new FileLogOutputter(file); // NOSONAR - Adopted by `Log`
     CLOG->insert(m_fileLog);
     LOG_VERBOSE("logging to file (%s) enabled", qPrintable(file));
+    return;
   }
+#if defined(Q_OS_MACOS)
+  // macOS: the core always keeps a log file, so problems can be looked into after the fact
+  // (FileLogOutputter rotates it at 1 MB into one .1 file, so at most about 2 MB)
+  const auto dir = QDir::homePath() + QStringLiteral("/Library/Logs/Deskflow");
+  if (QDir().mkpath(dir)) {
+    const auto file = dir + QStringLiteral("/deskflow-core.log");
+    m_fileLog = new FileLogOutputter(file); // NOSONAR - Adopted by `Log`
+    CLOG->insert(m_fileLog);
+    LOG_INFO("logging to %s", qPrintable(file));
+  }
+#endif
 }
 
 void App::loggingFilterWarning() const

@@ -71,6 +71,12 @@ public:
 
   //! Main thread only. Re-reads the enabled sources and the current source.
   void refreshAllOnMain();
+  //! Main thread only. Re-reads the current source after a selection change and logs the change (INFO),
+  //! saying whether the client asked for it and when the client last posted a key event for the server.
+  void selectionChangedOnMain();
+
+  //! Any thread. Marks that the client just posted a key event on behalf of the server (for the change log).
+  static void noteRemoteKeyEvent();
 
 private:
   InputSourceCache() = default;
@@ -83,6 +89,7 @@ private:
   std::shared_ptr<const InputSourceSnapshot> m_snapshot = std::make_shared<InputSourceSnapshot>();
   std::atomic<bool> m_started{false};
   std::atomic<bool> m_startQueued{false};
+  std::atomic<int64_t> m_ownSelectMs{0}; //!< steady clock ms of the last selection the client made
 };
 
 } // namespace deskflow::osx

@@ -9,6 +9,7 @@
 #include <Carbon/Carbon.h>
 
 #include <algorithm>
+#include <chrono>
 
 namespace deskflow::osx {
 
@@ -16,6 +17,21 @@ namespace {
 
 constexpr WindowsScancode kScancodeMask = 0x1ff;
 constexpr WindowsScancode kExtended = 0x100;
+// Windows "fake shift" (E0 2A / E0 36): sent around navigation keys with Num Lock on, never a real key
+constexpr WindowsScancode kFakeShiftL = kExtended | 0x2a;
+constexpr WindowsScancode kFakeShiftR = kExtended | 0x36;
+
+bool isFakeShift(WindowsScancode scancode)
+{
+  return scancode == kFakeShiftL || scancode == kFakeShiftR;
+}
+
+uint64_t steadyClockMs()
+{
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()
+  );
+}
 
 struct ScancodeEntry
 {
@@ -354,11 +370,12 @@ KeyDecision decideKey(
   return d;
 }
 
-WindowsKeyboardMapper::WindowsKeyboardMapper(bool swapCtrlCmd, AltTabMode altTabMode, bool ctrlShiftSwitch)
+WindowsKeyboardMapper::WindowsKeyboardMapper(bool swapCtrlCmd, AltTabMode altTabMode, bool ctrlShiftSwitch, Clock clock)
     : m_swapCtrlCmd(swapCtrlCmd),
       m_altTabSwitcher(altTabMode == AltTabMode::System),
       m_ctrlShiftSwitch(ctrlShiftSwitch),
-      m_altTabMode(altTabMode)
+      m_altTabMode(altTabMode),
+      m_clock(clock ? std::move(clock) : Clock(&steadyClockMs))
 {
   // nothing else
 }
@@ -366,11 +383,17 @@ WindowsKeyboardMapper::WindowsKeyboardMapper(bool swapCtrlCmd, AltTabMode altTab
 bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
 {
   const WindowsScancode scancode = button & kScancodeMask;
+  if (isFakeShift(scancode)) {
+    return true;
+  }
 
   if (const auto modifier = remoteModifierForScancode(scancode); modifier != 0) {
     if ((m_remote & modifier) == 0) {
       if (m_remote == 0) {
-        m_chordClean = true; // a new modifier sequence starts
+        // a new modifier sequence starts; a key still held from before (fast typing) spoils it
+        m_chordClean = !nonModifierHeld();
+        m_chordArmed = false;
+        m_chordStartMs = m_clock();
       }
       if (m_builtinOpen && (modifier & (kRemoteCtrl | kRemoteWin)) != 0) {
         // not a switcher chord any more: close it and let the modifier through
@@ -386,6 +409,7 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
 
   const auto virtualKey = windowsScancodeToMacVirtualKey(scancode);
   if (!virtualKey.has_value()) {
+    cancelChord(); // a key the platform posts by key id (media, lock keys) is a key all the same
     return false;
   }
 
@@ -455,6 +479,9 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
 bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, KeyActions &out)
 {
   const WindowsScancode scancode = button & kScancodeMask;
+  if (isFakeShift(scancode)) {
+    return true;
+  }
   if (remoteModifierForScancode(scancode) != 0) {
     return m_pressed[scancode].down;
   }
@@ -462,8 +489,10 @@ bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, Key
   auto &pressed = m_pressed[scancode];
   const auto virtualKey = windowsScancodeToMacVirtualKey(scancode);
   if (!pressed.down || !virtualKey.has_value()) {
+    cancelChord();
     return false;
   }
+  cancelChord(); // a held key auto-repeating is not part of a plain Ctrl+Shift tap
 
   if (pressed.swallowed) {
     // held Tab/arrow keeps moving the selection; nothing is posted
@@ -519,6 +548,9 @@ bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, Key
 bool WindowsKeyboardMapper::keyUp(WindowsScancode button, KeyActions &out)
 {
   const WindowsScancode scancode = button & kScancodeMask;
+  if (isFakeShift(scancode)) {
+    return true;
+  }
   auto &pressed = m_pressed[scancode];
   if (!pressed.down) {
     return false;
@@ -594,23 +626,49 @@ void WindowsKeyboardMapper::modifierChanged(KeyActions &out)
     m_chordArmed = false;
   }
   const bool chordHeld = ctrl && shift;
+  KeyAction chord;
   if (chordHeld && m_chordClean) {
     m_chordArmed = true;
   } else if (!chordHeld && m_chordArmed) {
-    // first of Ctrl/Shift released with nothing else in between
+    // first of Ctrl/Shift released with nothing else in between: a plain tap if it was quick
     m_chordArmed = false;
     m_chordClean = false;
-    if (m_ctrlShiftSwitch) {
-      KeyAction action;
-      action.kind = KeyAction::Kind::SwitchInputSource;
-      action.switchInputSource = true;
-      out.push_back(action);
+    const uint64_t elapsed = m_clock() - m_chordStartMs;
+    if (m_ctrlShiftSwitch && elapsed <= kChordMaxMs) {
+      chord.kind = KeyAction::Kind::SwitchInputSource;
+      chord.switchInputSource = true;
+      chord.chordMs = static_cast<uint32_t>(elapsed);
     }
   } else if (!chordHeld) {
     m_chordArmed = false;
   }
 
   reconcile(restModifiers(), out);
+  // after the release is posted, so the Mac never sees the switch with Command/Shift still down
+  if (chord.kind == KeyAction::Kind::SwitchInputSource) {
+    out.push_back(chord);
+  }
+}
+
+void WindowsKeyboardMapper::otherInput()
+{
+  cancelChord();
+}
+
+void WindowsKeyboardMapper::cancelChord()
+{
+  m_chordClean = false;
+  m_chordArmed = false;
+}
+
+bool WindowsKeyboardMapper::nonModifierHeld() const
+{
+  for (size_t scancode = 0; scancode < kNumScancodes; ++scancode) {
+    if (m_pressed[scancode].down && remoteModifierForScancode(static_cast<WindowsScancode>(scancode)) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool WindowsKeyboardMapper::plainAltHeld() const

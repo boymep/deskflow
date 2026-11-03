@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -172,6 +173,7 @@ struct KeyAction
   MacVirtualKey textKey = 0;    //!< virtual key to translate for the character
   bool shift = false;           //!< remote Shift held (for the character)
   bool switchInputSource = false; //!< not a key event: select the next Mac input source
+  uint32_t chordMs = 0;           //!< SwitchInputSource: time from the first Ctrl/Shift press to the release
   SwitcherCommand switcher = SwitcherCommand::None; //!< not a key event if set: drive the window switcher
 };
 using KeyActions = std::vector<KeyAction>;
@@ -197,14 +199,25 @@ suppressed until it is released) and releasing Alt commits. Any other key or Ctr
 cancels the switcher and is then handled normally. allKeysUp cancels it.
 
 Ctrl+Shift chord: when remote Ctrl and Shift were held together with no other
-key or modifier since all modifiers were last released, releasing either one
-emits a KeyAction with switchInputSource set (once per chord).
+key, modifier, mouse button or wheel (otherInput) since all modifiers were last
+released, and nothing but modifiers was held when the first of them went down,
+releasing either one within kChordMaxMs of the first press emits a KeyAction with
+switchInputSource set (once per chord), after the modifier release it causes.
+
+Windows "fake shift" scancodes (extended 0x2a / 0x36, sent around navigation keys
+with Num Lock on) are swallowed: they are not keys the user pressed.
 */
 class WindowsKeyboardMapper
 {
 public:
+  //! Milliseconds of a monotonic clock.
+  using Clock = std::function<uint64_t()>;
+
+  //! Longest Ctrl+Shift tap (first press to release) that still switches the input source.
+  static constexpr uint64_t kChordMaxMs = 600;
+
   explicit WindowsKeyboardMapper(
-      bool swapCtrlCmd, AltTabMode altTabMode = AltTabMode::Option, bool ctrlShiftSwitch = false
+      bool swapCtrlCmd, AltTabMode altTabMode = AltTabMode::Option, bool ctrlShiftSwitch = false, Clock clock = nullptr
   );
 
   //! Returns false if the key is not handled here (use the KeyID path).
@@ -215,6 +228,8 @@ public:
   bool keyUp(WindowsScancode button, KeyActions &out);
   //! Releases everything this mapper has pressed.
   void allKeysUp(KeyActions &out);
+  //! A remote mouse button press or wheel: the Ctrl+Shift chord in progress is not a plain tap any more.
+  void otherInput();
 
   RemoteModifiers remoteModifiers() const
   {
@@ -241,6 +256,8 @@ private:
   };
 
   void modifierChanged(KeyActions &out);
+  void cancelChord();
+  bool nonModifierHeld() const;
   bool plainAltHeld() const;
   SwitcherCommand switcherNavigation(MacVirtualKey virtualKey) const;
   void closeBuiltin(SwitcherCommand command, bool keepAltSuppressed, KeyActions &out);
@@ -259,6 +276,8 @@ private:
   bool m_altSuppressed = false; //!< Alt is not posted until released (after the built-in switcher used it)
   bool m_chordClean = true; //!< only Ctrl/Shift pressed since all modifiers were last released
   bool m_chordArmed = false; //!< Ctrl and Shift are both held and the chord is still clean
+  uint64_t m_chordStartMs = 0; //!< when the first modifier of the current sequence went down
+  Clock m_clock;
   RemoteModifiers m_remote = 0;
   MacModifiers m_posted = 0;
   WindowsScancode m_sticky = 0;

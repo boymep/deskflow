@@ -537,6 +537,9 @@ void OSXComputer::fakeMouseButton(ButtonID id, bool press)
     }
     return;
   }
+  if (press) {
+    m_keyState->remoteMouseInput(); // a click is not part of a plain Ctrl+Shift tap
+  }
 
   // Buttons are indexed from one, but the button down array is indexed from zero
   uint32_t index = mapDeskflowButtonToMac(id) - kButtonLeft;
@@ -660,6 +663,7 @@ void OSXComputer::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
 void OSXComputer::fakeMouseWheel(ScrollDelta delta) const
 {
   if (delta.x != 0 || delta.y != 0) {
+    m_keyState->remoteMouseInput(); // Ctrl+Shift+wheel is not a plain Ctrl+Shift tap
     delta = applyScrollModifier(
         {static_cast<int32_t>(delta.x / s_scrollDelta), static_cast<int32_t>(delta.y / s_scrollDelta)}
     );
@@ -747,13 +751,9 @@ void OSXComputer::enable()
     // warp the mouse to the cursor center
     fakeMouseMove(m_xCenter, m_yCenter);
 
-    // there may be a better way to do this, but we register an event handler even if we're
-    // not on the primary display (acting as a client). This way, if a local event comes in
-    // (either keyboard or mouse), we can make sure to show the cursor if we've hidden it.
-    m_eventTapPort = CGEventTapCreate(
-        kCGHIDEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault, kCGEventMaskForAllEvents,
-        handleCGInputEventSecondary, this
-    );
+    // No event tap on a client: the one upstream installed here was an active tap on every local
+    // keyboard and mouse event of the Mac that returned each event untouched. It only put the
+    // Mac's own typing through this process (and its scheduling) for nothing.
   }
 
   if (m_eventTapPort) {
@@ -776,7 +776,7 @@ void OSXComputer::enable()
     } else {
       LOG_ERR("failed to create a CFRunLoopSourceRef for the quartz event tap");
     }
-  } else {
+  } else if (m_isPrimary) {
     LOG_ERR("failed to create quartz event tap");
   }
 }
@@ -1683,29 +1683,6 @@ EventHotKeyRef OSXComputer::HotKeyItem::getRef() const
 bool OSXComputer::HotKeyItem::operator<(const HotKeyItem &x) const
 {
   return (m_keycode < x.m_keycode || (m_keycode == x.m_keycode && m_mask < x.m_mask));
-}
-
-// Quartz event tap support for the secondary display. This makes sure that we
-// will show the cursor if a local event comes in while deskflow has the cursor
-// off the computer.
-CGEventRef
-OSXComputer::handleCGInputEventSecondary(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon)
-{
-  // this fix is really screwing with the correct show/hide behavior. it
-  // should be tested better before reintroducing.
-  return event;
-
-  OSXComputer *computer = (OSXComputer *)refcon;
-  if (computer->m_cursorHidden && type == kCGEventMouseMoved) {
-
-    CGPoint pos = CGEventGetLocation(event);
-    if (pos.x != computer->m_xCenter || pos.y != computer->m_yCenter) {
-
-      LOG_DEBUG("show cursor on secondary, type=%d pos=%d,%d", type, pos.x, pos.y);
-      computer->showCursor();
-    }
-  }
-  return event;
 }
 
 // Quartz event tap support
