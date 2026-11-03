@@ -6,6 +6,7 @@
 
 #import "OSXHelpers.h"
 
+#import <ApplicationServices/ApplicationServices.h>
 #import <Cocoa/Cocoa.h>
 #import <CoreData/CoreData.h>
 #import <Foundation/Foundation.h>
@@ -154,4 +155,20 @@ void installQuitHandler(std::function<bool()> shouldQuit)
                                                                 Q_UNUSED(note)
                                                                 s_isSystemShuttingDown = YES;
                                                               }];
+}
+
+bool hasOSXScreenCapturePermission()
+{
+  return CGPreflightScreenCaptureAccess();
+}
+
+bool requestOSXScreenCapturePermission()
+{
+  return CGRequestScreenCaptureAccess();
+}
+
+void openOSXScreenCaptureSettings()
+{
+  NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"];
+  [[NSWorkspace sharedWorkspace] openURL:url];
 }

@@ -10,8 +10,27 @@
 #include "common/Settings.h"
 #include "gui/widgets/SettingsDialogButtonBox.h"
 
+#include <QOperatingSystemVersion>
 #include <QPushButton>
 #include <QSignalBlocker>
+
+#if defined(Q_OS_MACOS)
+#include "gui/OSXHelpers.h"
+#endif
+
+namespace {
+
+//! Window switcher thumbnails use ScreenCaptureKit screenshots, available from macOS 14.
+bool thumbnailsSupported()
+{
+#if defined(Q_OS_MACOS)
+  return QOperatingSystemVersion::current() >= QOperatingSystemVersion::MacOSSonoma;
+#else
+  return false;
+#endif
+}
+
+} // namespace
 
 ClientConfigDialog::ClientConfigDialog(QWidget *parent)
     : QDialog(parent),
@@ -19,6 +38,7 @@ ClientConfigDialog::ClientConfigDialog(QWidget *parent)
       m_buttonBox{new SettingsDialogButtonBox(this)}
 {
   ui->setupUi(this);
+  ui->widgetThumbnails->setVisible(thumbnailsSupported());
   fillAltTabModes();
   layout()->addWidget(m_buttonBox);
   initConnections();
@@ -40,6 +60,7 @@ void ClientConfigDialog::changeEvent(QEvent *e)
     ui->retranslateUi(this);
     fillAltTabModes();
     setAltTabMode(mode);
+    updateThumbnailControls();
   }
 }
 
@@ -74,6 +95,7 @@ void ClientConfigDialog::updateControls() const
   ui->lblAltTabMode->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
   ui->cbAltTabMode->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
   ui->cbCtrlShift->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
+  updateThumbnailControls();
   ui->cbSideButtons->setEnabled(writable);
   ui->cbXScrollInvert->setEnabled(writable);
   ui->sbXScrollScale->setEnabled(writable);
@@ -81,7 +103,47 @@ void ClientConfigDialog::updateControls() const
   ui->sbYScrollScale->setEnabled(writable);
 }
 
-void ClientConfigDialog::initConnections() const
+void ClientConfigDialog::updateThumbnailControls() const
+{
+  if (!thumbnailsSupported()) {
+    return;
+  }
+#if defined(Q_OS_MACOS)
+  const bool builtin = ui->cbPhysicalKeys->isChecked() && altTabMode() == QStringLiteral("builtin");
+  const bool granted = hasOSXScreenCapturePermission();
+  ui->btnThumbnails->setVisible(!granted);
+  ui->btnThumbnails->setEnabled(builtin);
+  ui->lblThumbnails->setEnabled(builtin);
+  if (granted) {
+    ui->lblThumbnails->setText(tr("Window thumbnails are allowed."));
+  } else if (m_thumbnailsRequested) {
+    ui->btnThumbnails->setText(tr("Open System Settings…"));
+    ui->lblThumbnails->setText(
+        tr("Turn on Deskflow in Privacy & Security > Screen & System Audio Recording, then restart Deskflow.")
+    );
+  } else {
+    ui->btnThumbnails->setText(tr("Allow window thumbnails…"));
+    ui->lblThumbnails->setText(tr("The window switcher shows app icons only."));
+  }
+#endif
+}
+
+void ClientConfigDialog::requestThumbnails()
+{
+#if defined(Q_OS_MACOS)
+  // the permission belongs to the Deskflow app bundle, which also covers deskflow-core
+  // (started by this process); macOS prompts only the first time, later go to System Settings
+  if (m_thumbnailsRequested) {
+    openOSXScreenCaptureSettings();
+  } else {
+    requestOSXScreenCapturePermission();
+    m_thumbnailsRequested = true;
+  }
+  updateThumbnailControls();
+#endif
+}
+
+void ClientConfigDialog::initConnections()
 {
   connect(m_buttonBox, &SettingsDialogButtonBox::accepted, this, &ClientConfigDialog::save);
   connect(m_buttonBox, &SettingsDialogButtonBox::rejected, this, &QDialog::reject);
@@ -96,6 +158,8 @@ void ClientConfigDialog::initConnections() const
   connect(ui->cbPhysicalKeys, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::updateControls);
   connect(ui->cbSwapCtrlCmd, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbAltTabMode, &QComboBox::currentIndexChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbAltTabMode, &QComboBox::currentIndexChanged, this, &ClientConfigDialog::updateThumbnailControls);
+  connect(ui->btnThumbnails, &QPushButton::clicked, this, &ClientConfigDialog::requestThumbnails);
   connect(ui->cbCtrlShift, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbSideButtons, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbYScrollInvert, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);

@@ -229,6 +229,30 @@ p, li { white-space: pre-wrap; }
         <source>Option+Tab (for third-party switchers)</source>
         <translation>Option+Tab (для сторонних переключателей)</translation>
     </message>
+    <message>
+        <source>Window thumbnails are allowed.</source>
+        <translation>Миниатюры окон разрешены.</translation>
+    </message>
+    <message>
+        <source>Open System Settings…</source>
+        <translation>Открыть Системные настройки…</translation>
+    </message>
+    <message>
+        <source>Turn on Deskflow in Privacy &amp; Security &gt; Screen &amp; System Audio Recording, then restart Deskflow.</source>
+        <translation>Включите Deskflow в разделе «Конфиденциальность и безопасность» &gt; «Запись экрана и системного аудио», затем перезапустите Deskflow.</translation>
+    </message>
+    <message>
+        <source>The window switcher shows app icons only.</source>
+        <translation>Переключатель окон показывает только значки приложений.</translation>
+    </message>
+    <message>
+        <source>Window previews in the built-in window switcher need the Screen Recording permission for Deskflow. Previews stay in memory only: they are never saved or sent anywhere.</source>
+        <translation>Для миниатюр окон во встроенном переключателе Deskflow нужно разрешение на запись экрана. Миниатюры хранятся только в памяти: они никуда не сохраняются и не отправляются.</translation>
+    </message>
+    <message>
+        <source>Allow window thumbnails…</source>
+        <translation>Разрешить миниатюры окон…</translation>
+    </message>
 </context>
 <context>
     <name>ComputerSettingsDialog</name>

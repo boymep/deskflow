@@ -105,6 +105,35 @@
       </layout>
      </item>
      <item>
+      <widget class="QWidget" name="widgetThumbnails" native="true">
+       <layout class="QHBoxLayout" name="layoutThumbnails">
+        <property name="spacing"><number>8</number></property>
+        <property name="leftMargin"><number>20</number></property>
+        <property name="topMargin"><number>0</number></property>
+        <property name="rightMargin"><number>0</number></property>
+        <property name="bottomMargin"><number>0</number></property>
+        <item>
+         <widget class="QPushButton" name="btnThumbnails">
+          <property name="toolTip">
+           <string>Window previews in the built-in window switcher need the Screen Recording permission for Deskflow. Previews stay in memory only: they are never saved or sent anywhere.</string>
+          </property>
+          <property name="text">
+           <string>Allow window thumbnails…</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="lblThumbnails">
+          <property name="wordWrap"><bool>true</bool></property>
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Preferred"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
       <spacer name="indent_cbCtrlShift">
        <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
        <property name="sizeType"><enum>QSizePolicy::Policy::Fixed</enum></property>

@@ -39,7 +39,12 @@ private:
    * @brief initConnections
    * Sets up all the connections
    */
-  void initConnections() const;
+  void initConnections();
+
+  //! Shows the window thumbnail permission state (macOS 14+ only).
+  void updateThumbnailControls() const;
+  //! Asks for the Screen Recording permission, or opens System Settings if macOS no longer prompts.
+  void requestThumbnails();
 
   //! Fills the Alt+Tab mode combobox (translated labels, setting values as item data).
   void fillAltTabModes() const;
@@ -83,4 +88,5 @@ private:
 
   Ui::ClientConfigDialog *ui = nullptr;
   SettingsDialogButtonBox *m_buttonBox = nullptr;
+  bool m_thumbnailsRequested = false; //!< the permission was asked for once while the dialog is open
 };
