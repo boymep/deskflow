@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build a self-contained ad-hoc-signed Deskflow.app (arm64) from brew Qt and zip it.
+# Build a self-contained signed Deskflow.app (arm64) from brew Qt and zip it.
 # Note: the official `cmake --install` path (deploy/mac/deploy.cmake -> macdeployqt) misses
 # brew's split Qt kegs (QtSvg/QtPdf/QtVirtualKeyboard), so macdeployqt is run manually with -libpath.
 set -eo pipefail
@@ -42,8 +42,21 @@ install_name_tool -add_rpath @executable_path/../Frameworks $C/MacOS/Deskflow 2>
 printf '[Paths]\nPlugins = PlugIns\nImports = Resources/qml\nQml2Imports = Resources/qml\n' > $C/Resources/qt.conf
 # Sign and verify
 xattr -cr dist/Deskflow.app
-codesign --force --deep --sign - dist/Deskflow.app
+# Stable self-signed identity keeps the designated requirement (and TCC grants) the same across builds.
+# Create it once with packaging/personal/create-signing-cert.sh. DESKFLOW_ADHOC_SIGN=1 falls back to ad-hoc.
+# The bundle id (org.deskflow.deskflow) comes from Info.plist, so the code identifier stays stable.
+SIGN_IDENTITY="${DESKFLOW_SIGN_IDENTITY:-Deskflow Self-Signed}"
+if [ "${DESKFLOW_ADHOC_SIGN:-0}" = 1 ]; then
+  codesign --force --deep --sign - dist/Deskflow.app
+else
+  if ! security find-identity -v -p codesigning | grep -qF "\"$SIGN_IDENTITY\""; then
+    echo "ERROR: code-signing identity \"$SIGN_IDENTITY\" not found. Run packaging/personal/create-signing-cert.sh once (or set DESKFLOW_ADHOC_SIGN=1)." >&2
+    exit 1
+  fi
+  codesign --force --deep --sign "$SIGN_IDENTITY" --timestamp=none dist/Deskflow.app
+fi
 codesign --verify --deep --strict --verbose=2 dist/Deskflow.app
+codesign -d -r- dist/Deskflow.app
 # Offending absolute refs (must be 0)
 echo "offending refs: $("$REPO/packaging/personal/check-refs.sh" dist/Deskflow.app | wc -l | tr -d ' ')"
 # Zip without AppleDouble ._ files: other unzip tools turn them into real files and break the code seal
