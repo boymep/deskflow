@@ -105,6 +105,115 @@ void OSXWindowSwitcherModelTests::orderMinimizedIgnoresStaleZ()
   QCOMPARE(order(c, {11, 21}, mru), (std::vector<size_t>{1, 0}));
 }
 
+void OSXWindowSwitcherModelTests::orderOtherSpacesMixedByMru()
+{
+  SwitcherMru mru;
+  mru.touchWindow(5, 51); // other Space, used long ago
+  mru.touchWindow(3, 31); // on screen, behind
+  mru.touchWindow(4, 41); // other Space, used after 31
+  mru.touchWindow(1, 11); // frontmost
+  // on screen front to back: 11, 21 (never tracked), 31; other Spaces: 41, 51, 61 (never seen); minimized: 71
+  const std::vector<SwitcherCandidate> c = {{1, 11, 0, false},       {2, 21, 0, false},       {3, 31, 0, false},
+                                            {4, 41, 0, false, true}, {5, 51, 0, false, true}, {6, 61, 0, false, true},
+                                            {7, 71, 0, true}};
+  // 41 was used after 21 and 31 (21 is in front of 31, so used after it, but 41 beat both)
+  QCOMPARE(order(c, {11, 21, 31, 41}, mru), (std::vector<size_t>{0, 3, 1, 2, 4, 5, 6}));
+
+  // the frontmost window stays first even if a window on another Space ranks better
+  SwitcherMru stale;
+  stale.touchWindow(4, 41);
+  QCOMPARE(order({{1, 11, 0, false}, {4, 41, 0, false, true}}, {11}, stale), (std::vector<size_t>{0, 1}));
+}
+
+void OSXWindowSwitcherModelTests::orderOtherSpacesWithoutOnScreen()
+{
+  SwitcherMru mru;
+  mru.touchWindow(2, 21);
+  mru.touchWindow(4, 41);
+  // empty current Space: other Spaces and minimized windows by MRU
+  const std::vector<SwitcherCandidate> c = {{2, 21, 0, true}, {3, 31, 0, false, true}, {4, 41, 0, false, true}};
+  QCOMPARE(order(c, {}, mru), (std::vector<size_t>{2, 0, 1}));
+}
+
+void OSXWindowSwitcherModelTests::spaceWindowPlausible()
+{
+  const std::vector<SwitcherPid> allowed = {7};
+  SwitcherSpaceWindow w{1, 7, 0, 1.0, {0, 0, 400, 300}, {}};
+  QVERIFY(switcherSpaceWindowPlausible(w, allowed));
+  auto bad = w;
+  bad.windowId = 0;
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+  bad = w;
+  bad.layer = 3;
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+  bad = w;
+  bad.alpha = 0;
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+  bad = w;
+  bad.frame.height = 20;
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+  bad = w;
+  bad.frame = {0, 0, 1728, 158}; // toolbar strip of a fullscreen browser
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+  bad = w;
+  bad.frame = {0, 0, 120, 900};
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+  bad = w;
+  bad.frame.width = std::numeric_limits<double>::quiet_NaN();
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+  bad = w;
+  bad.pid = 8;
+  QVERIFY(!switcherSpaceWindowPlausible(bad, allowed));
+}
+
+void OSXWindowSwitcherModelTests::selectOtherSpaces()
+{
+  const SwitcherRect frame{0, 0, 800, 600};
+  const std::vector<SwitcherSpaceWindow> w = {
+      {1, 7, 0, 1.0, frame, {2}},    // other desktop: kept
+      {2, 7, 0, 1.0, frame, {1}},    // visible Space, not reported by Accessibility: dropped
+      {3, 7, 0, 1.0, frame, {4}},    // fullscreen Space: kept
+      {4, 7, 0, 1.0, frame, {}},     // no Space: dropped
+      {5, 7, 0, 1.0, frame, {99}},   // system Space: dropped
+      {6, 7, 0, 1.0, frame, {2}},    // known via Accessibility: dropped
+      {1, 7, 0, 1.0, frame, {2}},    // duplicate: dropped
+      {7, 7, 0, 1.0, frame, {2, 1}}, // also on the visible Space: dropped
+      {8, 9, 0, 1.0, frame, {2}},    // process not allowed: dropped
+      {9, 7, 0, 1.0, frame, {2, 4}}, // kept
+  };
+  const std::vector<uint64_t> user = {1, 2, 4};
+  QCOMPARE(selectOtherSpaceWindows(w, {7}, {6}, user, {1}, 10), (std::vector<size_t>{0, 2, 9}));
+  QCOMPARE(selectOtherSpaceWindows(w, {7}, {6}, user, {1}, 2), (std::vector<size_t>{0, 2}));
+  QVERIFY(selectOtherSpaceWindows(w, {7}, {6}, user, {1}, 0).empty());
+}
+
+void OSXWindowSwitcherModelTests::remoteToken()
+{
+  const auto token = switcherRemoteToken(0x01020304, 0x1122334455667788ULL);
+  const std::array<uint8_t, kSwitcherRemoteTokenSize> expected = {0x04, 0x03, 0x02, 0x01, 0,    0,    0,
+                                                                  0,    0x6f, 0x63, 0x6f, 0x63, 0x88, 0x77,
+                                                                  0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
+  QVERIFY(token == expected);
+}
+
+void OSXWindowSwitcherModelTests::makeKeyWindowEvent()
+{
+  const auto press = switcherMakeKeyWindowEvent(0xa1b2c3d4, true);
+  const auto release = switcherMakeKeyWindowEvent(0xa1b2c3d4, false);
+  QCOMPARE(press.size(), size_t(0xf8));
+  QCOMPARE(int(press[0x04]), 0xf8);
+  QCOMPARE(int(press[0x08]), 0x01);
+  QCOMPARE(int(release[0x08]), 0x02);
+  QCOMPARE(int(press[0x3a]), 0x10);
+  for (size_t i = 0x20; i < 0x30; ++i) {
+    QCOMPARE(int(press[i]), 0xff);
+  }
+  QCOMPARE(int(press[0x3c]), 0xd4);
+  QCOMPARE(int(press[0x3f]), 0xa1);
+  QCOMPARE(int(press[0x00]), 0);
+  QCOMPARE(int(press[0x40]), 0);
+}
+
 void OSXWindowSwitcherModelTests::initialSelection()
 {
   QCOMPARE(switcherInitialSelection(0, false), size_t(0));

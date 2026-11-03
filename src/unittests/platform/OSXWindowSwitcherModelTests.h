@@ -19,6 +19,12 @@ private Q_SLOTS:
   void orderOffScreenByMru();
   void orderFallbackAppAndIndex();
   void orderMinimizedIgnoresStaleZ();
+  void orderOtherSpacesMixedByMru();
+  void orderOtherSpacesWithoutOnScreen();
+  void spaceWindowPlausible();
+  void selectOtherSpaces();
+  void remoteToken();
+  void makeKeyWindowEvent();
   void initialSelection();
   void stepWraps();
   void thumbnailSizeFits();

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <tuple>
 
@@ -86,26 +87,127 @@ std::vector<size_t> orderSwitcherCandidates(
   constexpr size_t kUnknown = std::numeric_limits<size_t>::max();
   using Key = std::tuple<size_t, size_t, size_t, int, size_t>;
 
-  std::vector<std::pair<Key, size_t>> keyed;
-  keyed.reserve(candidates.size());
+  // on screen: by stacking order; off screen: by window MRU, app MRU, index in the app
+  std::vector<std::pair<Key, size_t>> onScreen;
+  std::vector<std::pair<Key, size_t>> offScreen;
+  std::vector<std::pair<Key, size_t>> otherSpace;
   for (size_t i = 0; i < candidates.size(); ++i) {
     const auto &c = candidates[i];
     size_t z = kUnknown;
-    if (c.windowId != 0 && !c.minimized) {
+    if (c.windowId != 0 && !c.minimized && !c.otherSpace) {
       z = rankOf(zOrder, c.windowId).value_or(kUnknown);
     }
     const size_t windowRank = mru.windowRank(c.windowId).value_or(kUnknown);
     const size_t appRank = mru.appRank(c.pid).value_or(kUnknown);
-    keyed.emplace_back(Key{z, windowRank, appRank, c.appWindowIndex, i}, i);
+    const Key key{z, windowRank, appRank, c.appWindowIndex, i};
+    if (z != kUnknown) {
+      onScreen.emplace_back(key, i);
+    } else if (c.otherSpace) {
+      otherSpace.emplace_back(key, i);
+    } else {
+      offScreen.emplace_back(key, i);
+    }
   }
-  std::sort(keyed.begin(), keyed.end());
+  std::sort(onScreen.begin(), onScreen.end());
+  std::sort(otherSpace.begin(), otherSpace.end());
+
+  // a window in front was used after every window behind it: its effective
+  // recency is the best window MRU rank from it to the back
+  std::vector<size_t> recency(onScreen.size() + 1, kUnknown);
+  for (size_t i = onScreen.size(); i-- > 0;) {
+    recency[i] = std::min(recency[i + 1], std::get<1>(onScreen[i].first));
+  }
 
   std::vector<size_t> order;
-  order.reserve(keyed.size());
-  for (const auto &[key, index] : keyed) {
+  order.reserve(candidates.size());
+  size_t s = 0;
+  size_t o = 0;
+  if (!onScreen.empty()) {
+    order.push_back(onScreen[s++].second); // the window in use stays first
+  }
+  while (s < onScreen.size()) {
+    if (o < otherSpace.size() && std::get<1>(otherSpace[o].first) < recency[s]) {
+      order.push_back(otherSpace[o++].second);
+    } else {
+      order.push_back(onScreen[s++].second);
+    }
+  }
+
+  // the rest (other Spaces without a more recent use, minimized, hidden) by MRU
+  std::vector<std::pair<Key, size_t>> rest(otherSpace.begin() + static_cast<std::ptrdiff_t>(o), otherSpace.end());
+  rest.insert(rest.end(), offScreen.begin(), offScreen.end());
+  std::sort(rest.begin(), rest.end());
+  for (const auto &[key, index] : rest) {
     order.push_back(index);
   }
   return order;
+}
+
+bool switcherSpaceWindowPlausible(const SwitcherSpaceWindow &window, const std::vector<SwitcherPid> &allowed)
+{
+  return window.windowId != 0 && window.layer == 0 && std::isfinite(window.alpha) && window.alpha > 0 &&
+         std::isfinite(window.frame.width) && std::isfinite(window.frame.height) &&
+         window.frame.width >= kSwitcherMinSpaceWindowSize && window.frame.height >= kSwitcherMinSpaceWindowSize &&
+         window.frame.width <= window.frame.height * kSwitcherMaxSpaceWindowAspect &&
+         window.frame.height <= window.frame.width * kSwitcherMaxSpaceWindowAspect &&
+         std::find(allowed.begin(), allowed.end(), window.pid) != allowed.end();
+}
+
+std::vector<size_t> selectOtherSpaceWindows(
+    const std::vector<SwitcherSpaceWindow> &windows, const std::vector<SwitcherPid> &allowed,
+    const std::vector<SwitcherWindowId> &known, const std::vector<uint64_t> &userSpaces,
+    const std::vector<uint64_t> &visibleSpaces, size_t limit
+)
+{
+  const auto contains = [](const auto &list, const auto &value) {
+    return std::find(list.begin(), list.end(), value) != list.end();
+  };
+  std::vector<size_t> selected;
+  std::vector<SwitcherWindowId> taken;
+  for (size_t i = 0; i < windows.size() && selected.size() < limit; ++i) {
+    const auto &w = windows[i];
+    if (!switcherSpaceWindowPlausible(w, allowed) || w.spaces.empty() || contains(known, w.windowId) ||
+        contains(taken, w.windowId)) {
+      continue;
+    }
+    bool keep = true;
+    for (const auto space : w.spaces) {
+      if (!contains(userSpaces, space) || contains(visibleSpaces, space)) {
+        keep = false;
+        break;
+      }
+    }
+    if (keep) {
+      selected.push_back(i);
+      taken.push_back(w.windowId);
+    }
+  }
+  return selected;
+}
+
+std::array<uint8_t, kSwitcherRemoteTokenSize> switcherRemoteToken(SwitcherPid pid, uint64_t elementId)
+{
+  std::array<uint8_t, kSwitcherRemoteTokenSize> token{};
+  const int32_t pid32 = pid;
+  const int32_t zero = 0;
+  const int32_t magic = 0x636f636f; // "coco"
+  std::memcpy(token.data(), &pid32, sizeof(pid32));
+  std::memcpy(token.data() + 4, &zero, sizeof(zero));
+  std::memcpy(token.data() + 8, &magic, sizeof(magic));
+  std::memcpy(token.data() + 12, &elementId, sizeof(elementId));
+  return token;
+}
+
+std::array<uint8_t, kSwitcherEventRecordSize> switcherMakeKeyWindowEvent(SwitcherWindowId windowId, bool press)
+{
+  std::array<uint8_t, kSwitcherEventRecordSize> record{};
+  record[0x04] = 0xf8;
+  record[0x08] = press ? 0x01 : 0x02;
+  record[0x3a] = 0x10;
+  std::memset(record.data() + 0x20, 0xff, 0x10);
+  const uint32_t id = windowId;
+  std::memcpy(record.data() + 0x3c, &id, sizeof(id));
+  return record;
 }
 
 size_t switcherInitialSelection(size_t count, bool reverse)

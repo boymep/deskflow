@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -27,6 +28,7 @@ struct SwitcherCandidate
   SwitcherWindowId windowId = 0; //!< 0 if the CGWindowID could not be resolved
   int appWindowIndex = 0;        //!< position in the app's Accessibility window list (front to back)
   bool minimized = false;
+  bool otherSpace = false; //!< on a Space (desktop or fullscreen app) that is not shown right now
 };
 
 //! Most-recently-used order of applications and windows (pure logic).
@@ -62,8 +64,14 @@ private:
 /*!
 Windows on screen come first in window server stacking order \p zOrder (front to
 back), which is their real usage order on the current Space. The others
-(minimized, hidden apps, other Spaces) follow by window MRU rank, then app MRU
-rank, then their position in the app's window list.
+(minimized, hidden apps) follow by window MRU rank, then app MRU rank, then
+their position in the app's window list.
+
+Windows on other Spaces are mixed into the on-screen ones by window MRU rank,
+like Windows does: one goes before an on-screen window if it was used more
+recently than that window and every window behind it (stacking order implies
+the window in front was used later). The frontmost window always stays first.
+Without a window MRU rank they follow the on-screen windows like the others.
 */
 std::vector<size_t> orderSwitcherCandidates(
     const std::vector<SwitcherCandidate> &candidates, const std::vector<SwitcherWindowId> &zOrder,
@@ -84,6 +92,58 @@ struct SwitcherRect
   double width = 0;
   double height = 0;
 };
+
+//! A window as listed by the window server, with the Spaces it is on (pure data).
+struct SwitcherSpaceWindow
+{
+  SwitcherWindowId windowId = 0;
+  SwitcherPid pid = 0;
+  int layer = 0;
+  double alpha = 1.0;
+  SwitcherRect frame;
+  std::vector<uint64_t> spaces; //!< Space ids; empty if unknown
+};
+
+//! Smallest width and height, in points, of a window from another Space worth listing.
+inline constexpr double kSwitcherMinSpaceWindowSize = 100.0;
+//! Largest width to height ratio (either way) of such a window; flatter ones are toolbar or tab strips.
+inline constexpr double kSwitcherMaxSpaceWindowAspect = 6.0;
+
+//! True if \p window may be a user window: normal level, visible, sensible size and shape, of an \p allowed process.
+/*!
+Checks everything except the Spaces, so it can run before they are looked up.
+*/
+bool switcherSpaceWindowPlausible(const SwitcherSpaceWindow &window, const std::vector<SwitcherPid> &allowed);
+
+//! Indices of \p windows to add to the switcher as windows on other Spaces, in input order, at most \p limit.
+/*!
+Keeps plausible windows (see switcherSpaceWindowPlausible) whose window id is
+not in \p known (already listed via Accessibility), whose Spaces are all in
+\p userSpaces (desktops and fullscreen apps; drops windows of system Spaces or
+on no Space) and none of them in \p visibleSpaces (a window there that
+Accessibility does not report is not a real window). Duplicates are dropped.
+*/
+std::vector<size_t> selectOtherSpaceWindows(
+    const std::vector<SwitcherSpaceWindow> &windows, const std::vector<SwitcherPid> &allowed,
+    const std::vector<SwitcherWindowId> &known, const std::vector<uint64_t> &userSpaces,
+    const std::vector<uint64_t> &visibleSpaces, size_t limit
+);
+
+//! Size of a remote Accessibility element token.
+inline constexpr size_t kSwitcherRemoteTokenSize = 20;
+
+//! Token for creating the Accessibility element \p elementId of process \p pid remotely.
+/*!
+Layout (native byte order): pid (int32), 0 (int32), the "coco" magic
+0x636f636f (int32), element id (uint64).
+*/
+std::array<uint8_t, kSwitcherRemoteTokenSize> switcherRemoteToken(SwitcherPid pid, uint64_t elementId);
+
+//! Size of a window server event record.
+inline constexpr size_t kSwitcherEventRecordSize = 0xf8;
+
+//! Event record that makes \p windowId the key window of its process (\p press: first half, else second half).
+std::array<uint8_t, kSwitcherEventRecordSize> switcherMakeKeyWindowEvent(SwitcherWindowId windowId, bool press);
 
 //! Size of a thumbnail image in pixels; 0 x 0 if nothing should be captured.
 struct SwitcherPixelSize

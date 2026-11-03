@@ -9,6 +9,7 @@
 #import "base/Log.h"
 #import "platform/OSXWindowSwitcherModel.h"
 #import "platform/OSXWindowSwitcherPanel.h"
+#import "platform/OSXWindowSwitcherSpaces.h"
 #import "platform/OSXWindowSwitcherThumbnails.h"
 
 #import <ApplicationServices/ApplicationServices.h>
@@ -90,20 +91,6 @@ std::vector<SwitcherWindowId> onScreenWindowOrder()
   return order;
 }
 
-bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
-{
-  if (![role isEqualToString:(__bridge NSString *)kAXWindowRole]) {
-    return false;
-  }
-  if ([subrole isEqualToString:(__bridge NSString *)kAXStandardWindowSubrole] ||
-      [subrole isEqualToString:(__bridge NSString *)kAXDialogSubrole]) {
-    return true;
-  }
-  // some toolkits report no or an unknown subrole for document windows; skip
-  // floating panels and untitled utility windows
-  return (subrole == nil || [subrole isEqualToString:(__bridge NSString *)kAXUnknownSubrole]) && title.length > 0;
-}
-
 } // namespace
 
 //! Main thread only.
@@ -116,6 +103,7 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
   SwitcherMru _mru;
   DeskflowSwitcherPanel *_panel;
   DeskflowSwitcherThumbnailer *_thumbnailer;
+  DeskflowSwitcherRemoteWindows *_remote;
   NSArray<DeskflowSwitcherItem *> *_items;
   NSUInteger _selection;
   BOOL _open;
@@ -129,6 +117,12 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
   if ((self = [super init])) {
     _panel = [DeskflowSwitcherPanel new];
     _thumbnailer = [DeskflowSwitcherThumbnailer new];
+    _remote = [DeskflowSwitcherRemoteWindows new];
+    // resolve the private calls early, off the main thread (the first lookup takes ~100 ms)
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+      deskflow::osx::switcherSpacesAvailable();
+      [DeskflowSwitcherRemoteWindows available];
+    });
     _items = @[];
     _observers = [NSMutableArray array];
     [self startObserving];
@@ -292,7 +286,7 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
           AXValueGetValue((__bridge AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
         }
       }
-      if (!isSwitchableWindow(role, subrole, title)) {
+      if (!deskflow::osx::switcherIsSwitchableAXWindow(role, subrole, title)) {
         continue;
       }
 
@@ -311,6 +305,91 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
     }
   }
   return items;
+}
+
+//! Windows on other Spaces (desktops, fullscreen apps) that Accessibility did not report; empty if unsupported.
+- (NSArray<DeskflowSwitcherItem *> *)collectOtherSpaceItems:(NSArray<DeskflowSwitcherItem *> *)listed
+{
+  NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray array];
+  if (listed.count >= kMaxWindows || !deskflow::osx::switcherSpacesAvailable()) {
+    return items;
+  }
+  std::vector<SwitcherWindowId> known;
+  for (DeskflowSwitcherItem *item in listed) {
+    if (item.windowId != 0) {
+      known.push_back(item.windowId);
+    }
+  }
+  std::vector<deskflow::osx::SwitcherPid> allowed;
+  const pid_t ownPid = getpid();
+  for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
+    if (app.activationPolicy == NSApplicationActivationPolicyRegular && !app.terminated &&
+        app.processIdentifier != ownPid) {
+      allowed.push_back(app.processIdentifier);
+    }
+  }
+  for (const auto &window : deskflow::osx::switcherOtherSpaceWindows(known, allowed, kMaxWindows - listed.count)) {
+    if ([_remote isRejected:window.windowId]) {
+      continue;
+    }
+    NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:window.pid];
+    if (app == nil) {
+      continue;
+    }
+    DeskflowSwitcherRemoteWindow *remote = [_remote cachedWindow:window.windowId];
+    DeskflowSwitcherItem *item = [DeskflowSwitcherItem new];
+    item.title = remote.title.length > 0 ? remote.title : (@(window.title.c_str()) ?: @"");
+    item.appName = app.localizedName ?: @"";
+    item.icon = app.icon;
+    item.minimized = remote.minimized;
+    item.appHidden = app.hidden;
+    item.pid = window.pid;
+    item.windowId = window.windowId;
+    item.axWindow = remote.element;
+    item.frame = CGRectMake(window.frame.x, window.frame.y, window.frame.width, window.frame.height);
+    item.otherSpace = YES;
+    [items addObject:item];
+  }
+  return items;
+}
+
+//! Looks up Accessibility elements (and titles) of listed windows on other Spaces in the background.
+- (void)resolveOtherSpaceItems
+{
+  std::vector<std::pair<deskflow::osx::SwitcherPid, SwitcherWindowId>> wanted;
+  for (DeskflowSwitcherItem *item in _items) {
+    if (item.otherSpace && item.axWindow == nil) {
+      wanted.emplace_back(item.pid, item.windowId);
+    }
+  }
+  if (wanted.empty()) {
+    return;
+  }
+  __weak DeskflowWindowSwitcherController *weakSelf = self;
+  [_remote resolve:wanted
+             found:^(uint32_t windowId, DeskflowSwitcherRemoteWindow *window) {
+               [weakSelf applyRemoteWindow:window windowId:windowId];
+             }];
+}
+
+- (void)applyRemoteWindow:(DeskflowSwitcherRemoteWindow *)window windowId:(uint32_t)windowId
+{
+  if (!_open) {
+    return; // cached for the next open
+  }
+  for (NSUInteger i = 0; i < _items.count; ++i) {
+    DeskflowSwitcherItem *item = _items[i];
+    if (!item.otherSpace || item.windowId != windowId) {
+      continue;
+    }
+    item.axWindow = window.element;
+    item.minimized = window.minimized;
+    if (window.title.length > 0) {
+      item.title = window.title;
+    }
+    [_panel refreshItemAtIndex:i];
+    return;
+  }
 }
 
 - (void)open:(BOOL)reverse
@@ -332,6 +411,7 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
   }
 
   NSArray<DeskflowSwitcherItem *> *found = [self collectItems];
+  found = [found arrayByAddingObjectsFromArray:[self collectOtherSpaceItems:found]];
   std::vector<SwitcherCandidate> candidates;
   std::vector<SwitcherWindowId> alive;
   candidates.reserve(found.count);
@@ -343,12 +423,17 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
         ++appIndex;
       }
     }
-    candidates.push_back(SwitcherCandidate{item.pid, item.windowId, appIndex, static_cast<bool>(item.minimized)});
+    candidates.push_back(
+        SwitcherCandidate{
+            item.pid, item.windowId, appIndex, static_cast<bool>(item.minimized), static_cast<bool>(item.otherSpace)
+        }
+    );
     if (item.windowId != 0) {
       alive.push_back(item.windowId);
     }
   }
   _mru.retainWindows(alive);
+  [_remote retainWindows:alive];
   const auto order = deskflow::osx::orderSwitcherCandidates(candidates, onScreenWindowOrder(), _mru);
   NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray arrayWithCapacity:order.size()];
   for (const auto index : order) {
@@ -369,6 +454,7 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
     [_thumbnailer applyCachedThumbnailsTo:_items];
   }
   [_panel showItems:_items selection:_selection thumbnails:thumbnails];
+  [self resolveOtherSpaceItems];
   LOG_DEBUG(
       "window switcher: opened with %lu windows in %.0f ms%s", static_cast<unsigned long>(_items.count),
       (CFAbsoluteTimeGetCurrent() - started) * 1000.0, thumbnails ? ", with thumbnails" : ""
@@ -449,6 +535,15 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
   }
   if (window != nullptr && item.minimized) {
     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute, kCFBooleanFalse);
+  }
+  // a window on another Space: focus it through the window server, which switches to its Space
+  if (item.otherSpace && deskflow::osx::switcherFocusWindow(item.pid, item.windowId)) {
+    if (window != nullptr) {
+      AXUIElementSetAttributeValue(window, kAXMainAttribute, kCFBooleanTrue);
+      AXUIElementPerformAction(window, kAXRaiseAction);
+    }
+    _mru.touchWindow(item.pid, item.windowId);
+    return;
   }
   // Accessibility brings the app forward even though this background process is not active
   if (AXUIElementRef axApp = createAppElement(item.pid); axApp != nullptr) {

@@ -463,7 +463,12 @@ NSString *displayTitle(DeskflowSwitcherItem *item)
 - (void)refreshItemAtIndex:(NSUInteger)index
 {
   if (index < self.itemViews.count) {
-    self.itemViews[index].needsDisplay = YES;
+    DeskflowSwitcherItemView *view = self.itemViews[index];
+    view.titleField.stringValue = displayTitle(view.item);
+    view.needsDisplay = YES;
+    if (index == self.selection) {
+      [self selectIndex:index]; // the header shows the title too
+    }
   }
 }
 

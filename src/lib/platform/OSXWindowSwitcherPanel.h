@@ -24,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, assign) uint32_t windowId; //!< CGWindowID, 0 if unknown
 @property(nonatomic, strong, nullable) id axWindow; //!< AXUIElementRef of the window
 @property(nonatomic, assign) CGRect frame;          //!< Accessibility frame, global points, top-left origin
+@property(nonatomic, assign) BOOL otherSpace;       //!< on a Space that is not shown right now
 @end
 
 //! Borderless, non-activating panel that shows switcher items in a grid.
@@ -48,7 +49,7 @@ only the app icon.
         selection:(NSUInteger)selection
        thumbnails:(BOOL)thumbnails;
 - (void)selectIndex:(NSUInteger)index;
-//! Redraws the tile of item \p index (e.g. after its thumbnail changed).
+//! Redraws the tile of item \p index (e.g. after its thumbnail or title changed).
 - (void)refreshItemAtIndex:(NSUInteger)index;
 - (void)hide;
 //! Builds the panel content for \p items without showing it (also used to render previews).

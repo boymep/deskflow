@@ -119,12 +119,14 @@ elseif(APPLE)
     OSXWindowSwitcherModel.h
     OSXWindowSwitcherPanel.h
     OSXWindowSwitcherPanel.mm
+    OSXWindowSwitcherSpaces.h
+    OSXWindowSwitcherSpaces.mm
     OSXWindowSwitcherThumbnails.h
     OSXWindowSwitcherThumbnails.mm
   )
   # the window switcher is written for ARC; the older Objective-C files use manual retain/release
   set_source_files_properties(
-    OSXWindowSwitcher.mm OSXWindowSwitcherPanel.mm OSXWindowSwitcherThumbnails.mm
+    OSXWindowSwitcher.mm OSXWindowSwitcherPanel.mm OSXWindowSwitcherSpaces.mm OSXWindowSwitcherThumbnails.mm
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
   )
 elseif(UNIX)

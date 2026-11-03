@@ -20,8 +20,10 @@ thread, so handle() may be called from any thread: every command is queued, in
 order, to the main dispatch queue, where all AppKit and Accessibility work runs.
 
 Windows are listed via Accessibility (needs the same permission the client
-already needs to post events). Windows on other Spaces are usually not
-reported by Accessibility and are then missing from the list.
+already needs to post events). Windows on other Spaces (desktops and
+fullscreen apps), which Accessibility does not report, are added from the
+window server with private calls (see OSXWindowSwitcherSpaces.h); without
+those calls the list holds the current Space only.
 */
 class OSXWindowSwitcher
 {
