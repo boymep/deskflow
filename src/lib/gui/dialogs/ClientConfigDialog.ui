@@ -74,14 +74,35 @@
       </spacer>
      </item>
      <item>
-      <widget class="QCheckBox" name="cbAltTab">
-       <property name="toolTip">
-        <string>Server Alt+Tab opens the macOS app switcher (Command+Tab). Command stays held while Alt is held, so the switcher shortcuts (arrows, Q, H) work. Needs the Windows server keyboard.</string>
-       </property>
-       <property name="text">
-        <string>Alt+Tab switches apps</string>
-       </property>
-      </widget>
+      <layout class="QHBoxLayout" name="layoutAltTab">
+       <property name="spacing"><number>8</number></property>
+       <item>
+        <widget class="QLabel" name="lblAltTabMode">
+         <property name="text">
+          <string>Alt+Tab:</string>
+         </property>
+         <property name="buddy">
+          <cstring>cbAltTabMode</cstring>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="cbAltTabMode">
+         <property name="toolTip">
+          <string>What server Alt+Tab does on this Mac. Window switcher: a Windows-style list of open windows, Alt+Tab and Alt+Shift+Tab (or arrows) move the selection, releasing Alt switches, Esc cancels; needs Accessibility permission. macOS app switcher: Command+Tab. Option+Tab: passed through for third-party switchers. Needs the Windows server keyboard.</string>
+         </property>
+         <property name="sizeAdjustPolicy">
+          <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="spacerAltTab">
+         <property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>0</width><height>0</height></size></property>
+        </spacer>
+       </item>
+      </layout>
      </item>
      <item>
       <spacer name="indent_cbCtrlShift">

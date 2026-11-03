@@ -114,7 +114,9 @@ deskflow::Computer *ClientApp::createComputer()
   deskflow::osx::WindowsKeyboardOptions windowsKeyboard;
   windowsKeyboard.enabled = Settings::value(Settings::Client::PhysicalKeys).toBool();
   windowsKeyboard.swapCtrlCmd = Settings::value(Settings::Client::SwapCtrlCmd).toBool();
-  windowsKeyboard.altTabAppSwitcher = Settings::value(Settings::Client::AltTabAppSwitcher).toBool();
+  windowsKeyboard.altTabMode =
+      deskflow::osx::altTabModeFromString(Settings::value(Settings::Client::AltTabMode).toString().toStdString())
+          .value_or(deskflow::osx::AltTabMode::Builtin);
   windowsKeyboard.ctrlShiftSwitchesLayout = Settings::value(Settings::Client::CtrlShiftSwitchesLayout).toBool();
   windowsKeyboard.sideButtonsSwitchSpaces = Settings::value(Settings::Client::SideButtonsSwitchSpaces).toBool();
   LOG_INFO(
@@ -122,8 +124,8 @@ deskflow::Computer *ClientApp::createComputer()
       windowsKeyboard.enabled && windowsKeyboard.swapCtrlCmd ? " (ctrl and cmd swapped)" : ""
   );
   LOG_INFO(
-      "alt+tab app switcher is %s, ctrl+shift input source switch is %s, mouse side buttons open mission control is %s",
-      windowsKeyboard.altTabAppSwitcher ? "enabled" : "disabled",
+      "alt+tab mode is %s, ctrl+shift input source switch is %s, mouse side buttons open mission control is %s",
+      deskflow::osx::altTabModeName(windowsKeyboard.altTabMode),
       windowsKeyboard.ctrlShiftSwitchesLayout ? "enabled" : "disabled",
       windowsKeyboard.sideButtonsSwitchSpaces ? "enabled" : "disabled"
   );

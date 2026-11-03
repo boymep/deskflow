@@ -11,6 +11,7 @@
 #include "gui/widgets/SettingsDialogButtonBox.h"
 
 #include <QPushButton>
+#include <QSignalBlocker>
 
 ClientConfigDialog::ClientConfigDialog(QWidget *parent)
     : QDialog(parent),
@@ -18,6 +19,7 @@ ClientConfigDialog::ClientConfigDialog(QWidget *parent)
       m_buttonBox{new SettingsDialogButtonBox(this)}
 {
   ui->setupUi(this);
+  fillAltTabModes();
   layout()->addWidget(m_buttonBox);
   initConnections();
   load();
@@ -33,8 +35,32 @@ ClientConfigDialog::~ClientConfigDialog()
 void ClientConfigDialog::changeEvent(QEvent *e)
 {
   QDialog::changeEvent(e);
-  if (e->type() == QEvent::LanguageChange)
+  if (e->type() == QEvent::LanguageChange) {
+    const auto mode = altTabMode();
     ui->retranslateUi(this);
+    fillAltTabModes();
+    setAltTabMode(mode);
+  }
+}
+
+void ClientConfigDialog::fillAltTabModes() const
+{
+  const QSignalBlocker blocker(ui->cbAltTabMode);
+  ui->cbAltTabMode->clear();
+  ui->cbAltTabMode->addItem(tr("Window switcher (built-in)"), QStringLiteral("builtin"));
+  ui->cbAltTabMode->addItem(tr("macOS app switcher (Command+Tab)"), QStringLiteral("system"));
+  ui->cbAltTabMode->addItem(tr("Option+Tab (for third-party switchers)"), QStringLiteral("option"));
+}
+
+QString ClientConfigDialog::altTabMode() const
+{
+  return ui->cbAltTabMode->currentData().toString();
+}
+
+void ClientConfigDialog::setAltTabMode(const QString &mode) const
+{
+  const int index = ui->cbAltTabMode->findData(mode);
+  ui->cbAltTabMode->setCurrentIndex(index >= 0 ? index : 0);
 }
 
 void ClientConfigDialog::updateControls() const
@@ -45,7 +71,8 @@ void ClientConfigDialog::updateControls() const
   ui->cbLanguageSync->setEnabled(writable && !ui->cbPhysicalKeys->isChecked());
   ui->cbPhysicalKeys->setEnabled(writable);
   ui->cbSwapCtrlCmd->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
-  ui->cbAltTab->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
+  ui->lblAltTabMode->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
+  ui->cbAltTabMode->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
   ui->cbCtrlShift->setEnabled(writable && ui->cbPhysicalKeys->isChecked());
   ui->cbSideButtons->setEnabled(writable);
   ui->cbXScrollInvert->setEnabled(writable);
@@ -68,7 +95,7 @@ void ClientConfigDialog::initConnections() const
   connect(ui->cbPhysicalKeys, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbPhysicalKeys, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::updateControls);
   connect(ui->cbSwapCtrlCmd, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
-  connect(ui->cbAltTab, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
+  connect(ui->cbAltTabMode, &QComboBox::currentIndexChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbCtrlShift, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbSideButtons, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
   connect(ui->cbYScrollInvert, &QCheckBox::checkStateChanged, this, &ClientConfigDialog::setButtonBoxEnabledButtons);
@@ -85,7 +112,7 @@ bool ClientConfigDialog::isModified() const
          (ui->cbLanguageSync->isChecked() != Settings::value(Settings::Client::LanguageSync).toBool()) ||
          (ui->cbPhysicalKeys->isChecked() != Settings::value(Settings::Client::PhysicalKeys).toBool()) ||
          (ui->cbSwapCtrlCmd->isChecked() != Settings::value(Settings::Client::SwapCtrlCmd).toBool()) ||
-         (ui->cbAltTab->isChecked() != Settings::value(Settings::Client::AltTabAppSwitcher).toBool()) ||
+         (altTabMode() != Settings::value(Settings::Client::AltTabMode).toString()) ||
          (ui->cbCtrlShift->isChecked() != Settings::value(Settings::Client::CtrlShiftSwitchesLayout).toBool()) ||
          (ui->cbSideButtons->isChecked() != Settings::value(Settings::Client::SideButtonsSwitchSpaces).toBool()) ||
          (ui->cbYScrollInvert->isChecked() != Settings::value(Settings::Client::InvertYScroll).toBool()) ||
@@ -101,7 +128,7 @@ bool ClientConfigDialog::isDefault() const
          (ui->cbLanguageSync->isChecked() == Settings::defaultValue(Settings::Client::LanguageSync).toBool()) &&
          (ui->cbPhysicalKeys->isChecked() == Settings::defaultValue(Settings::Client::PhysicalKeys).toBool()) &&
          (ui->cbSwapCtrlCmd->isChecked() == Settings::defaultValue(Settings::Client::SwapCtrlCmd).toBool()) &&
-         (ui->cbAltTab->isChecked() == Settings::defaultValue(Settings::Client::AltTabAppSwitcher).toBool()) &&
+         (altTabMode() == Settings::defaultValue(Settings::Client::AltTabMode).toString()) &&
          (ui->cbCtrlShift->isChecked() == Settings::defaultValue(Settings::Client::CtrlShiftSwitchesLayout).toBool()) &&
          (ui->cbSideButtons->isChecked() == Settings::defaultValue(Settings::Client::SideButtonsSwitchSpaces).toBool()) &&
          (ui->cbYScrollInvert->isChecked() == Settings::defaultValue(Settings::Client::InvertYScroll).toBool()) &&
@@ -124,7 +151,7 @@ void ClientConfigDialog::load()
   ui->cbLanguageSync->setChecked(Settings::value(Settings::Client::LanguageSync).toBool());
   ui->cbPhysicalKeys->setChecked(Settings::value(Settings::Client::PhysicalKeys).toBool());
   ui->cbSwapCtrlCmd->setChecked(Settings::value(Settings::Client::SwapCtrlCmd).toBool());
-  ui->cbAltTab->setChecked(Settings::value(Settings::Client::AltTabAppSwitcher).toBool());
+  setAltTabMode(Settings::value(Settings::Client::AltTabMode).toString());
   ui->cbCtrlShift->setChecked(Settings::value(Settings::Client::CtrlShiftSwitchesLayout).toBool());
   ui->cbSideButtons->setChecked(Settings::value(Settings::Client::SideButtonsSwitchSpaces).toBool());
   ui->cbYScrollInvert->setChecked(Settings::value(Settings::Client::InvertYScroll).toBool());
@@ -139,7 +166,7 @@ void ClientConfigDialog::resetToDefault()
   ui->cbLanguageSync->setChecked(Settings::defaultValue(Settings::Client::LanguageSync).toBool());
   ui->cbPhysicalKeys->setChecked(Settings::defaultValue(Settings::Client::PhysicalKeys).toBool());
   ui->cbSwapCtrlCmd->setChecked(Settings::defaultValue(Settings::Client::SwapCtrlCmd).toBool());
-  ui->cbAltTab->setChecked(Settings::defaultValue(Settings::Client::AltTabAppSwitcher).toBool());
+  setAltTabMode(Settings::defaultValue(Settings::Client::AltTabMode).toString());
   ui->cbCtrlShift->setChecked(Settings::defaultValue(Settings::Client::CtrlShiftSwitchesLayout).toBool());
   ui->cbSideButtons->setChecked(Settings::defaultValue(Settings::Client::SideButtonsSwitchSpaces).toBool());
   ui->cbYScrollInvert->setChecked(Settings::defaultValue(Settings::Client::InvertYScroll).toBool());
@@ -154,7 +181,7 @@ void ClientConfigDialog::save()
   Settings::setValue(Settings::Client::LanguageSync, ui->cbLanguageSync->isChecked());
   Settings::setValue(Settings::Client::PhysicalKeys, ui->cbPhysicalKeys->isChecked());
   Settings::setValue(Settings::Client::SwapCtrlCmd, ui->cbSwapCtrlCmd->isChecked());
-  Settings::setValue(Settings::Client::AltTabAppSwitcher, ui->cbAltTab->isChecked());
+  Settings::setValue(Settings::Client::AltTabMode, altTabMode());
   Settings::setValue(Settings::Client::CtrlShiftSwitchesLayout, ui->cbCtrlShift->isChecked());
   Settings::setValue(Settings::Client::SideButtonsSwitchSpaces, ui->cbSideButtons->isChecked());
   Settings::setValue(Settings::Client::InvertYScroll, ui->cbYScrollInvert->isChecked());

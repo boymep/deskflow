@@ -41,6 +41,13 @@ private:
    */
   void initConnections() const;
 
+  //! Fills the Alt+Tab mode combobox (translated labels, setting values as item data).
+  void fillAltTabModes() const;
+  //! Setting value of the selected Alt+Tab mode.
+  QString altTabMode() const;
+  //! Selects \p mode, or the first entry if unknown.
+  void setAltTabMode(const QString &mode) const;
+
   /**
    * @brief isModified
    * @return true when any client settings in the gui do not match the stored settings values.

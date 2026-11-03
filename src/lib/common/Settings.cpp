@@ -124,6 +124,10 @@ void Settings::upgradeSettings()
       continue;
     if (oldKey == InternalConfig::Protocol) {
       m_settings->setValue(newKey, networkProtocolToOption(NetworkProtocol(m_settings->value(oldKey).toInt())));
+    } else if (oldKey == Client::AltTabAppSwitcherLegacy) {
+      m_settings->setValue(
+          newKey, m_settings->value(oldKey).toBool() ? QStringLiteral("system") : QStringLiteral("option")
+      );
     } else if (oldKey == InternalConfig::ClipboardSharingSize) {
       m_settings->setValue(newKey, m_settings->value(oldKey).toUInt() / 1024);
     } else {
@@ -368,6 +372,9 @@ QVariant Settings::defaultValue(const QString &key)
 
   if (key == Client::YScrollScale || key == Client::XScrollScale)
     return 1.0;
+
+  if (key == Client::AltTabMode)
+    return QStringLiteral("builtin");
 
   if (key == Server::Protocol)
     return networkProtocolToOption(NetworkProtocol::Barrier);

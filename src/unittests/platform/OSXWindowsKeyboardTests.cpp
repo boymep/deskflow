@@ -30,6 +30,11 @@ constexpr WindowsScancode kScBackspace = 0x0e;
 constexpr WindowsScancode kScHome = 0x147;
 constexpr WindowsScancode kScEnd = 0x14f;
 constexpr WindowsScancode kScA = 0x1e;
+constexpr WindowsScancode kScRight = 0x14d;
+constexpr WindowsScancode kScUp = 0x148;
+constexpr WindowsScancode kScDown = 0x150;
+constexpr WindowsScancode kScEsc = 0x01;
+constexpr WindowsScancode kScEnter = 0x1c;
 
 // compact form of an action list: "+37" = modifier 0x37 down, "K0d" = key down, "k0d" = key up
 QString describe(const KeyActions &actions)
@@ -38,6 +43,12 @@ QString describe(const KeyActions &actions)
   for (const auto &a : actions) {
     if (a.switchInputSource) {
       parts << "S";
+      continue;
+    }
+    if (a.switcher != SwitcherCommand::None) {
+      // built-in window switcher: O(pen) OR(open reverse) N(ext) P(rev) C(ommit) X (cancel)
+      static const char *names[] = {"", "O", "OR", "N", "P", "C", "X"};
+      parts << names[static_cast<int>(a.switcher)];
       continue;
     }
     QString prefix = a.isModifier ? (a.down ? "+" : "-") : (a.down ? (a.repeat ? "R" : "K") : "k");
@@ -358,7 +369,7 @@ void OSXWindowsKeyboardTests::decideAltTab()
 
 void OSXWindowsKeyboardTests::mapperAltTabSwitcher()
 {
-  WindowsKeyboardMapper m(true, true, false);
+  WindowsKeyboardMapper m(true, AltTabMode::System, false);
   KeyActions out;
   m.keyDown(kScLAlt, out);
   QCOMPARE(describe(out), QString("+3a"));
@@ -393,7 +404,7 @@ void OSXWindowsKeyboardTests::mapperAltTabSwitcher()
 
 void OSXWindowsKeyboardTests::mapperAltShiftTabBackwards()
 {
-  WindowsKeyboardMapper m(true, true, false);
+  WindowsKeyboardMapper m(true, AltTabMode::System, false);
   KeyActions out;
   m.keyDown(kScLShift, out);
   m.keyDown(kScLAlt, out);
@@ -414,7 +425,7 @@ void OSXWindowsKeyboardTests::mapperAltShiftTabBackwards()
 
 void OSXWindowsKeyboardTests::mapperAltTabDisabled()
 {
-  WindowsKeyboardMapper m(true, false, false);
+  WindowsKeyboardMapper m(true, AltTabMode::Option, false);
   KeyActions out;
   m.keyDown(kScLAlt, out);
   m.keyDown(kScTab, out);
@@ -424,7 +435,7 @@ void OSXWindowsKeyboardTests::mapperAltTabDisabled()
 
 void OSXWindowsKeyboardTests::mapperCtrlShiftChord()
 {
-  WindowsKeyboardMapper m(true, true, true);
+  WindowsKeyboardMapper m(true, AltTabMode::System, true);
   KeyActions out;
 
   // Ctrl, Shift, release Shift first: one switch, modifiers still posted
@@ -452,7 +463,7 @@ void OSXWindowsKeyboardTests::mapperCtrlShiftChord()
 
 void OSXWindowsKeyboardTests::mapperCtrlShiftChordCancelled()
 {
-  WindowsKeyboardMapper m(true, true, true);
+  WindowsKeyboardMapper m(true, AltTabMode::System, true);
   auto switches = [](const KeyActions &out) {
     int n = 0;
     for (const auto &a : out)
@@ -509,13 +520,215 @@ void OSXWindowsKeyboardTests::mapperCtrlShiftChordCancelled()
   QCOMPARE(switches(out), 1);
 
   // disabled setting: no action
-  WindowsKeyboardMapper off(true, true, false);
+  WindowsKeyboardMapper off(true, AltTabMode::System, false);
   out.clear();
   off.keyDown(kScLCtrl, out);
   off.keyDown(kScLShift, out);
   off.keyUp(kScLShift, out);
   off.keyUp(kScLCtrl, out);
   QCOMPARE(switches(out), 0);
+}
+
+void OSXWindowsKeyboardTests::altTabModeNames()
+{
+  QCOMPARE(altTabModeFromString("option"), std::optional<AltTabMode>(AltTabMode::Option));
+  QCOMPARE(altTabModeFromString("system"), std::optional<AltTabMode>(AltTabMode::System));
+  QCOMPARE(altTabModeFromString("builtin"), std::optional<AltTabMode>(AltTabMode::Builtin));
+  QVERIFY(!altTabModeFromString("").has_value());
+  QVERIFY(!altTabModeFromString("true").has_value());
+  QCOMPARE(QString(altTabModeName(AltTabMode::Option)), QString("option"));
+  QCOMPARE(QString(altTabModeName(AltTabMode::System)), QString("system"));
+  QCOMPARE(QString(altTabModeName(AltTabMode::Builtin)), QString("builtin"));
+  QCOMPARE(WindowsKeyboardOptions{}.altTabMode, AltTabMode::Builtin);
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinOpenNavigateCommit()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  QCOMPARE(describe(out), QString("+3a"));
+  out.clear();
+  // Tab opens the switcher; Option is released, Tab is not posted
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  QCOMPARE(describe(out), QString("-3a O"));
+  QVERIFY(m.builtinSwitcherOpen());
+  QCOMPARE(m.postedModifiers(), MacModifiers(0));
+  out.clear();
+  for (const auto sc : {kScTab, kScRight, kScLeft, kScUp, kScDown}) {
+    m.keyDown(sc, out);
+    m.keyUp(sc, out);
+  }
+  QCOMPARE(describe(out), QString("N N P P N"));
+  out.clear();
+  // Shift+Tab goes back; Shift itself is not posted while open
+  m.keyDown(kScLShift, out);
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  m.keyUp(kScLShift, out);
+  QCOMPARE(describe(out), QString("P"));
+  out.clear();
+  // releasing Alt commits, nothing else reaches the Mac
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("C"));
+  QVERIFY(!m.builtinSwitcherOpen());
+  QCOMPARE(m.postedModifiers(), MacModifiers(0));
+  out.clear();
+  // afterwards Alt is Option again
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScQ, out);
+  m.keyUp(kScQ, out);
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("+3a Kc kc -3a"));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinShiftOpensReverse()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLShift, out);
+  m.keyDown(kScLAlt, out);
+  QCOMPARE(describe(out), QString("+38 +3a"));
+  out.clear();
+  m.keyDown(kScTab, out);
+  QCOMPARE(describe(out), QString("-38 -3a OR"));
+  out.clear();
+  m.keyUp(kScTab, out);
+  // Alt released while Shift is still held: commit, then Shift is posted again
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("C +38"));
+  out.clear();
+  m.keyUp(kScLShift, out);
+  QCOMPARE(describe(out), QString("-38"));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinEscCancels()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  out.clear();
+  m.keyDown(kScEsc, out);
+  m.keyUp(kScEsc, out);
+  QCOMPARE(describe(out), QString("X"));
+  QVERIFY(!m.builtinSwitcherOpen());
+  out.clear();
+  // Alt stays suppressed until released; Tab again reopens
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  QCOMPARE(describe(out), QString("O"));
+  out.clear();
+  m.keyDown(kScEsc, out);
+  m.keyUp(kScEsc, out);
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("X"));
+  QCOMPARE(m.postedModifiers(), MacModifiers(0));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinEnterCommits()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  out.clear();
+  m.keyDown(kScEnter, out);
+  m.keyUp(kScEnter, out);
+  m.keyUp(kScTab, out);
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("C"));
+  QCOMPARE(m.postedModifiers(), MacModifiers(0));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinOtherKeyCancels()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  out.clear();
+  // Q closes the switcher and is posted normally, with Option
+  m.keyDown(kScQ, out);
+  m.keyUp(kScQ, out);
+  QCOMPARE(describe(out), QString("X +3a Kc kc"));
+  QVERIFY(!m.builtinSwitcherOpen());
+  out.clear();
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("-3a"));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinCtrlCancels()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  out.clear();
+  m.keyDown(kScLCtrl, out);
+  QCOMPARE(describe(out), QString("X +3a +37"));
+  out.clear();
+  m.keyUp(kScTab, out); // swallowed key: still nothing to release
+  m.keyUp(kScLCtrl, out);
+  m.keyUp(kScLAlt, out);
+  QCOMPARE(describe(out), QString("-37 -3a"));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinRepeat()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  out.clear();
+  QVERIFY(m.keyRepeat(kScTab, 3, out));
+  // mis-reported repeat as a second key down
+  m.keyDown(kScTab, out);
+  QCOMPARE(describe(out), QString("N N N N"));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinAllKeysUp()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLShift, out);
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  out.clear();
+  // leaving the screen or disconnecting closes the switcher; nothing is stuck
+  m.allKeysUp(out);
+  QCOMPARE(describe(out), QString("X"));
+  QVERIFY(!m.builtinSwitcherOpen());
+  QCOMPARE(m.postedModifiers(), MacModifiers(0));
+  QCOMPARE(m.remoteModifiers(), RemoteModifiers(0));
+  out.clear();
+  m.allKeysUp(out);
+  QCOMPARE(describe(out), QString(""));
+  // next Alt+Tab works again
+  m.keyDown(kScLAlt, out);
+  m.keyDown(kScTab, out);
+  QCOMPARE(describe(out), QString("+3a -3a O"));
+}
+
+void OSXWindowsKeyboardTests::mapperBuiltinNotWithCtrlOrWin()
+{
+  WindowsKeyboardMapper m(true, AltTabMode::Builtin, false);
+  KeyActions out;
+  m.keyDown(kScLWin, out);
+  m.keyDown(kScLAlt, out);
+  out.clear();
+  m.keyDown(kScTab, out);
+  m.keyUp(kScTab, out);
+  QCOMPARE(describe(out), QString("K30 k30"));
+  QVERIFY(!m.builtinSwitcherOpen());
+  // plain Tab is never a switcher key
+  WindowsKeyboardMapper n(true, AltTabMode::Builtin, false);
+  out.clear();
+  n.keyDown(kScTab, out);
+  QCOMPARE(describe(out), QString("K30"));
 }
 
 QTEST_MAIN(OSXWindowsKeyboardTests)

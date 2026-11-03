@@ -113,9 +113,15 @@ elseif(APPLE)
     OSXScreenSaverUtil.m
     OSXWindowsKeyboard.cpp
     OSXWindowsKeyboard.h
+    OSXWindowSwitcher.h
+    OSXWindowSwitcher.mm
     OSXWindowSwitcherModel.cpp
     OSXWindowSwitcherModel.h
+    OSXWindowSwitcherPanel.h
+    OSXWindowSwitcherPanel.mm
   )
+  # the window switcher is written for ARC; the older Objective-C files use manual retain/release
+  set_source_files_properties(OSXWindowSwitcher.mm OSXWindowSwitcherPanel.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 elseif(UNIX)
   set(PLATFORM_SOURCES
     XDGPortalRegistry.h

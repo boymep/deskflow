@@ -9,6 +9,7 @@
 
 #include "OSXAutoTypes.h"
 #include "deskflow/KeyState.h"
+#include "platform/OSXWindowSwitcher.h"
 #include "platform/OSXWindowsKeyboard.h"
 
 #include <Carbon/Carbon.h>
@@ -211,6 +212,8 @@ private:
 
   // Windows server keyboard mode (null when disabled)
   std::unique_ptr<deskflow::osx::WindowsKeyboardMapper> m_windowsKeyboard;
+  // built-in window switcher (null unless Alt+Tab mode is builtin)
+  std::unique_ptr<deskflow::osx::OSXWindowSwitcher> m_windowSwitcher;
   // PC layout used for Windows characters, cached per current input source
   AutoTISInputSourceRef m_windowsTextSource{nullptr, CFRelease};
   std::string m_windowsTextSourceFor;

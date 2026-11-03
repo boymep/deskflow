@@ -44,7 +44,10 @@ public:
     inline static const auto LanguageSync = QStringLiteral("client/languageSync");
     inline static const auto PhysicalKeys = QStringLiteral("client/physicalKeys");
     inline static const auto SwapCtrlCmd = QStringLiteral("client/swapCtrlCmd");
-    inline static const auto AltTabAppSwitcher = QStringLiteral("client/altTabAppSwitcher");
+    //! "option" (Option+Tab passthrough), "system" (Command+Tab) or "builtin" (window switcher)
+    inline static const auto AltTabMode = QStringLiteral("client/altTabMode");
+    //! replaced by AltTabMode: true -> "system", false -> "option"
+    inline static const auto AltTabAppSwitcherLegacy = QStringLiteral("client/altTabAppSwitcher");
     inline static const auto CtrlShiftSwitchesLayout = QStringLiteral("client/ctrlShiftSwitchesLayout");
     inline static const auto SideButtonsSwitchSpaces = QStringLiteral("client/sideButtonsSwitchSpaces");
     inline static const auto RemoteHost = QStringLiteral("client/remoteHost");
@@ -283,7 +286,7 @@ private:
     , Client::LanguageSync
     , Client::PhysicalKeys
     , Client::SwapCtrlCmd
-    , Client::AltTabAppSwitcher
+    , Client::AltTabMode
     , Client::CtrlShiftSwitchesLayout
     , Client::SideButtonsSwitchSpaces
     , Client::RemoteHost
@@ -403,6 +406,7 @@ private:
   inline static const QMap<QString, QString> m_upgradedMap = {
     /*             OLD KEY                        NEW KEY          */
       {QStringLiteral("core/screenName"), Core::ComputerName}
+    , {Client::AltTabAppSwitcherLegacy, Client::AltTabMode}
     , {InternalConfig::NumColumns, Server::GridWidth}
     , {InternalConfig::NumRows, Server::GridHeight}
     , {InternalConfig::Heartbeat, Server::Heartbeat}

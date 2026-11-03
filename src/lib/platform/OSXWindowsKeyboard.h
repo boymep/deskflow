@@ -25,12 +25,26 @@ Only events the client synthesizes for the server are affected; the Mac's own
 keyboard is never touched.
 */
 
+//! What remote Alt+Tab does on the Mac.
+enum class AltTabMode : uint8_t
+{
+  Option,  //!< posted as Option+Tab, for third-party switchers
+  System,  //!< Command+Tab: the macOS app switcher
+  Builtin, //!< the client's own window switcher (WindowsKeyboardMapper emits SwitcherCommand actions)
+};
+
+//! Parses the \c client/altTabMode setting ("option", "system", "builtin"); no value if unknown.
+std::optional<AltTabMode> altTabModeFromString(const std::string &value);
+
+//! Setting value of \p mode.
+const char *altTabModeName(AltTabMode mode);
+
 //! Client settings for the Windows server keyboard mode.
 struct WindowsKeyboardOptions
 {
   bool enabled = false;    //!< master switch; off = upstream behaviour
   bool swapCtrlCmd = true; //!< remote Ctrl -> Command, Windows key -> Control
-  bool altTabAppSwitcher = true;       //!< remote Alt+Tab -> Command+Tab (macOS app switcher)
+  AltTabMode altTabMode = AltTabMode::Builtin; //!< what remote Alt+Tab does
   bool ctrlShiftSwitchesLayout = true; //!< remote Ctrl+Shift alone -> next Mac input source
   //! remote mouse buttons 4/5 switch Spaces; unlike the keyboard options this works with \c enabled off
   bool sideButtonsSwitchSpaces = true;
@@ -126,6 +140,18 @@ KeyDecision decideKey(
     bool altTabSwitcher = false, bool switcherOpen = false
 );
 
+//! Command for the built-in window switcher (AltTabMode::Builtin).
+enum class SwitcherCommand : uint8_t
+{
+  None,
+  Open,        //!< show the switcher, select the previous window
+  OpenReverse, //!< show the switcher, select the last window (Alt+Shift+Tab)
+  Next,
+  Prev,
+  Commit, //!< activate the selected window and hide
+  Cancel, //!< hide without activating anything
+};
+
 //! One event the platform layer must post, in order.
 struct KeyAction
 {
@@ -138,6 +164,7 @@ struct KeyAction
   MacVirtualKey textKey = 0;    //!< virtual key to translate for the character
   bool shift = false;           //!< remote Shift held (for the character)
   bool switchInputSource = false; //!< not a key event: select the next Mac input source
+  SwitcherCommand switcher = SwitcherCommand::None; //!< not a key event if set: drive the window switcher
 };
 using KeyActions = std::vector<KeyAction>;
 
@@ -155,6 +182,12 @@ held. Releases are always posted before presses.
 Alt+Tab opens the macOS app switcher: Command is held (instead of Option) and
 stays held, together with any other key pressed meanwhile, until Alt is released.
 
+Built-in window switcher (AltTabMode::Builtin): Alt+Tab emits SwitcherCommand::Open
+instead of a key. While it is open, Tab/Shift+Tab, arrows, Esc and Return become switcher
+commands, nothing is posted to the Mac (posted modifiers are released, Alt stays
+suppressed until it is released) and releasing Alt commits. Any other key or Ctrl/Win
+cancels the switcher and is then handled normally. allKeysUp cancels it.
+
 Ctrl+Shift chord: when remote Ctrl and Shift were held together with no other
 key or modifier since all modifiers were last released, releasing either one
 emits a KeyAction with switchInputSource set (once per chord).
@@ -162,7 +195,9 @@ emits a KeyAction with switchInputSource set (once per chord).
 class WindowsKeyboardMapper
 {
 public:
-  explicit WindowsKeyboardMapper(bool swapCtrlCmd, bool altTabSwitcher = false, bool ctrlShiftSwitch = false);
+  explicit WindowsKeyboardMapper(
+      bool swapCtrlCmd, AltTabMode altTabMode = AltTabMode::Option, bool ctrlShiftSwitch = false
+  );
 
   //! Returns false if the key is not handled here (use the KeyID path).
   bool keyDown(WindowsScancode button, KeyActions &out);
@@ -181,6 +216,11 @@ public:
   {
     return m_posted;
   }
+  //! True while the built-in window switcher is open.
+  bool builtinSwitcherOpen() const
+  {
+    return m_builtinOpen;
+  }
 
 private:
   struct PressedKey
@@ -189,9 +229,13 @@ private:
     MacVirtualKey virtualKey = 0;
     bool text = false;
     MacVirtualKey textKey = 0;
+    bool swallowed = false; //!< consumed by the built-in switcher, nothing was posted
   };
 
   void modifierChanged(KeyActions &out);
+  bool plainAltHeld() const;
+  SwitcherCommand switcherNavigation(MacVirtualKey virtualKey) const;
+  void closeBuiltin(SwitcherCommand command, bool keepAltSuppressed, KeyActions &out);
   MacModifiers restModifiers();
   void reconcile(MacModifiers target, KeyActions &out);
   KeyAction keyAction(const KeyDecision &decision, bool down) const;
@@ -202,6 +246,9 @@ private:
   bool m_altTabSwitcher;
   bool m_ctrlShiftSwitch;
   bool m_switcherOpen = false;
+  AltTabMode m_altTabMode;
+  bool m_builtinOpen = false;
+  bool m_altSuppressed = false; //!< Alt is not posted until released (after the built-in switcher used it)
   bool m_chordClean = true; //!< only Ctrl/Shift pressed since all modifiers were last released
   bool m_chordArmed = false; //!< Ctrl and Shift are both held and the chord is still clean
   RemoteModifiers m_remote = 0;

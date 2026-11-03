@@ -29,4 +29,14 @@ private Q_SLOTS:
   void mapperAltTabDisabled();
   void mapperCtrlShiftChord();
   void mapperCtrlShiftChordCancelled();
+  void altTabModeNames();
+  void mapperBuiltinOpenNavigateCommit();
+  void mapperBuiltinShiftOpensReverse();
+  void mapperBuiltinEscCancels();
+  void mapperBuiltinEnterCommits();
+  void mapperBuiltinOtherKeyCancels();
+  void mapperBuiltinCtrlCancels();
+  void mapperBuiltinRepeat();
+  void mapperBuiltinAllKeysUp();
+  void mapperBuiltinNotWithCtrlOrWin();
 };

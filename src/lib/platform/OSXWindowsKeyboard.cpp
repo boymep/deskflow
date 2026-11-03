@@ -8,6 +8,8 @@
 
 #include <Carbon/Carbon.h>
 
+#include <algorithm>
+
 namespace deskflow::osx {
 
 namespace {
@@ -193,6 +195,30 @@ std::vector<std::string> pcLayoutCandidates(const std::string &inputSourceId)
   return {inputSourceId + "Win", inputSourceId + "-PC", inputSourceId + "PC"};
 }
 
+std::optional<AltTabMode> altTabModeFromString(const std::string &value)
+{
+  if (value == "option")
+    return AltTabMode::Option;
+  if (value == "system")
+    return AltTabMode::System;
+  if (value == "builtin")
+    return AltTabMode::Builtin;
+  return std::nullopt;
+}
+
+const char *altTabModeName(AltTabMode mode)
+{
+  switch (mode) {
+  case AltTabMode::Option:
+    return "option";
+  case AltTabMode::System:
+    return "system";
+  case AltTabMode::Builtin:
+    return "builtin";
+  }
+  return "builtin";
+}
+
 RemoteModifier remoteModifierForScancode(WindowsScancode scancode)
 {
   switch (scancode & kScancodeMask) {
@@ -328,10 +354,11 @@ KeyDecision decideKey(
   return d;
 }
 
-WindowsKeyboardMapper::WindowsKeyboardMapper(bool swapCtrlCmd, bool altTabSwitcher, bool ctrlShiftSwitch)
+WindowsKeyboardMapper::WindowsKeyboardMapper(bool swapCtrlCmd, AltTabMode altTabMode, bool ctrlShiftSwitch)
     : m_swapCtrlCmd(swapCtrlCmd),
-      m_altTabSwitcher(altTabSwitcher),
-      m_ctrlShiftSwitch(ctrlShiftSwitch)
+      m_altTabSwitcher(altTabMode == AltTabMode::System),
+      m_ctrlShiftSwitch(ctrlShiftSwitch),
+      m_altTabMode(altTabMode)
 {
   // nothing else
 }
@@ -344,6 +371,10 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
     if ((m_remote & modifier) == 0) {
       if (m_remote == 0) {
         m_chordClean = true; // a new modifier sequence starts
+      }
+      if (m_builtinOpen && (modifier & (kRemoteCtrl | kRemoteWin)) != 0) {
+        // not a switcher chord any more: close it and let the modifier through
+        closeBuiltin(SwitcherCommand::Cancel, false, out);
       }
       m_remote |= modifier;
       m_pressed[scancode].down = true;
@@ -363,6 +394,40 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
     return keyRepeat(scancode, 1, out);
   }
 
+  // built-in window switcher
+  if (m_builtinOpen) {
+    if (const auto command = switcherNavigation(*virtualKey); command != SwitcherCommand::None) {
+      m_pressed[scancode].down = true;
+      m_pressed[scancode].swallowed = true;
+      if (command == SwitcherCommand::Cancel || command == SwitcherCommand::Commit) {
+        closeBuiltin(command, true, out);
+        reconcile(restModifiers(), out);
+      } else {
+        KeyAction action;
+        action.switcher = command;
+        out.push_back(action);
+      }
+      return true;
+    }
+    // any other key closes the switcher and is handled normally (with Alt)
+    closeBuiltin(SwitcherCommand::Cancel, false, out);
+  } else if (m_altTabMode == AltTabMode::Builtin && *virtualKey == kVK_Tab && plainAltHeld()) {
+    m_builtinOpen = true;
+    m_chordClean = false;
+    m_chordArmed = false;
+    m_sticky = 0;
+    m_pressed[scancode].down = true;
+    m_pressed[scancode].swallowed = true;
+    // nothing reaches the Mac while the switcher is open: release Option (and the rest)
+    reconcile(restModifiers(), out);
+    KeyAction action;
+    action.switcher = (m_remote & kRemoteShift) ? SwitcherCommand::OpenReverse : SwitcherCommand::Open;
+    out.push_back(action);
+    return true;
+  }
+
+  // a regular key after the switcher closed with Alt still held gets Alt back
+  m_altSuppressed = false;
   const auto decision = decideKey(scancode, *virtualKey, m_remote, m_swapCtrlCmd, m_altTabSwitcher, m_switcherOpen);
   // a key between Ctrl and Shift cancels the input source chord
   if (m_remote != 0) {
@@ -396,6 +461,25 @@ bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, Key
   const auto virtualKey = windowsScancodeToMacVirtualKey(scancode);
   if (!pressed.down || !virtualKey.has_value()) {
     return false;
+  }
+
+  if (pressed.swallowed) {
+    // held Tab/arrow keeps moving the selection; nothing is posted
+    const auto command = m_builtinOpen ? switcherNavigation(*virtualKey) : SwitcherCommand::None;
+    if (command == SwitcherCommand::Next || command == SwitcherCommand::Prev) {
+      constexpr int32_t kMaxSteps = 16;
+      const int32_t steps = std::min(std::max(count, 1), kMaxSteps);
+      for (int32_t i = 0; i < steps; ++i) {
+        KeyAction action;
+        action.switcher = command;
+        out.push_back(action);
+      }
+    }
+    return true;
+  }
+  if (m_builtinOpen) {
+    // a key held from before the switcher opened
+    closeBuiltin(SwitcherCommand::Cancel, false, out);
   }
 
   // modifiers may have changed since the key went down, so decide again
@@ -439,7 +523,19 @@ bool WindowsKeyboardMapper::keyUp(WindowsScancode button, KeyActions &out)
   if (const auto modifier = remoteModifierForScancode(scancode); modifier != 0) {
     pressed = PressedKey{};
     m_remote &= static_cast<RemoteModifiers>(~modifier);
+    if ((m_remote & kRemoteAlt) == 0) {
+      if (m_builtinOpen) {
+        // Alt released: activate the selected window
+        closeBuiltin(SwitcherCommand::Commit, false, out);
+      }
+      m_altSuppressed = false;
+    }
     modifierChanged(out);
+    return true;
+  }
+
+  if (pressed.swallowed) {
+    pressed = PressedKey{};
     return true;
   }
 
@@ -458,9 +554,13 @@ bool WindowsKeyboardMapper::keyUp(WindowsScancode button, KeyActions &out)
 
 void WindowsKeyboardMapper::allKeysUp(KeyActions &out)
 {
+  if (m_builtinOpen) {
+    closeBuiltin(SwitcherCommand::Cancel, false, out);
+  }
+  m_altSuppressed = false;
   for (size_t scancode = 0; scancode < kNumScancodes; ++scancode) {
     auto &pressed = m_pressed[scancode];
-    if (pressed.down && remoteModifierForScancode(static_cast<WindowsScancode>(scancode)) == 0) {
+    if (pressed.down && !pressed.swallowed && remoteModifierForScancode(static_cast<WindowsScancode>(scancode)) == 0) {
       KeyAction up;
       up.virtualKey = pressed.virtualKey;
       up.down = false;
@@ -506,8 +606,49 @@ void WindowsKeyboardMapper::modifierChanged(KeyActions &out)
   reconcile(restModifiers(), out);
 }
 
+bool WindowsKeyboardMapper::plainAltHeld() const
+{
+  return (m_remote & kRemoteAlt) != 0 && (m_remote & (kRemoteCtrl | kRemoteWin)) == 0;
+}
+
+SwitcherCommand WindowsKeyboardMapper::switcherNavigation(MacVirtualKey virtualKey) const
+{
+  switch (virtualKey) {
+  case kVK_Tab:
+    return (m_remote & kRemoteShift) ? SwitcherCommand::Prev : SwitcherCommand::Next;
+  case kVK_LeftArrow:
+  case kVK_UpArrow:
+    return SwitcherCommand::Prev;
+  case kVK_RightArrow:
+  case kVK_DownArrow:
+    return SwitcherCommand::Next;
+  case kVK_Escape:
+    return SwitcherCommand::Cancel;
+  case kVK_Return:
+  case kVK_ANSI_KeypadEnter:
+    return SwitcherCommand::Commit;
+  default:
+    return SwitcherCommand::None;
+  }
+}
+
+void WindowsKeyboardMapper::closeBuiltin(SwitcherCommand command, bool keepAltSuppressed, KeyActions &out)
+{
+  m_builtinOpen = false;
+  m_altSuppressed = keepAltSuppressed && (m_remote & kRemoteAlt) != 0;
+  KeyAction action;
+  action.switcher = command;
+  out.push_back(action);
+}
+
 MacModifiers WindowsKeyboardMapper::restModifiers()
 {
+  if (m_builtinOpen) {
+    return 0;
+  }
+  if (m_altSuppressed) {
+    return baseMacModifiers(static_cast<RemoteModifiers>(m_remote & ~kRemoteAlt), m_swapCtrlCmd);
+  }
   if (m_switcherOpen) {
     // app switcher stays open while Alt is held (and nothing else changes the chord)
     if ((m_remote & kRemoteAlt) && (m_remote & (kRemoteCtrl | kRemoteWin)) == 0) {

@@ -194,14 +194,6 @@ p, li { white-space: pre-wrap; }
         <translation>Поменять местами Ctrl и Cmd</translation>
     </message>
     <message>
-        <source>Server Alt+Tab opens the macOS app switcher (Command+Tab). Command stays held while Alt is held, so the switcher shortcuts (arrows, Q, H) work. Needs the Windows server keyboard.</source>
-        <translation>Alt+Tab на сервере открывает переключатель приложений macOS (Command+Tab). Command остаётся нажатой, пока удерживается Alt, поэтому работают клавиши переключателя (стрелки, Q, H). Требуется клавиатура сервера Windows.</translation>
-    </message>
-    <message>
-        <source>Alt+Tab switches apps</source>
-        <translation>Alt+Tab открывает системный переключатель (Cmd+Tab)</translation>
-    </message>
-    <message>
         <source>Pressing and releasing Ctrl+Shift on the server keyboard, with no other key in between, selects the next enabled input source on this Mac. Needs the Windows server keyboard.</source>
         <translation>Нажатие и отпускание Ctrl+Shift на клавиатуре сервера без других клавиш между ними выбирает следующий включённый источник ввода на этом Mac. Требуется клавиатура сервера Windows.</translation>
     </message>
@@ -216,6 +208,26 @@ p, li { white-space: pre-wrap; }
     <message>
         <source>Side mouse buttons open Mission Control (forward) and App Exposé (back)</source>
         <translation>Боковые кнопки мыши открывают Mission Control (вперёд) и App Exposé (назад)</translation>
+    </message>
+    <message>
+        <source>Alt+Tab:</source>
+        <translation>Alt+Tab:</translation>
+    </message>
+    <message>
+        <source>What server Alt+Tab does on this Mac. Window switcher: a Windows-style list of open windows, Alt+Tab and Alt+Shift+Tab (or arrows) move the selection, releasing Alt switches, Esc cancels; needs Accessibility permission. macOS app switcher: Command+Tab. Option+Tab: passed through for third-party switchers. Needs the Windows server keyboard.</source>
+        <translation>Что делает Alt+Tab сервера на этом Mac. Переключатель окон: список открытых окон, как в Windows. Alt+Tab и Alt+Shift+Tab (или стрелки) двигают выбор, отпускание Alt переключает, Esc отменяет. Нужно разрешение «Универсальный доступ». Переключатель приложений macOS: Command+Tab. Option+Tab: передаётся как есть, для сторонних переключателей. Требуется клавиатура сервера Windows.</translation>
+    </message>
+    <message>
+        <source>Window switcher (built-in)</source>
+        <translation>Переключатель окон (встроенный)</translation>
+    </message>
+    <message>
+        <source>macOS app switcher (Command+Tab)</source>
+        <translation>Переключатель приложений macOS (Command+Tab)</translation>
+    </message>
+    <message>
+        <source>Option+Tab (for third-party switchers)</source>
+        <translation>Option+Tab (для сторонних переключателей)</translation>
     </message>
 </context>
 <context>

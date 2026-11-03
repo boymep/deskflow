@@ -1047,12 +1047,17 @@ std::string toStdString(CFStringRef string)
 void OSXKeyState::enableWindowsKeyboard(const deskflow::osx::WindowsKeyboardOptions &options)
 {
   m_windowsKeyboard = std::make_unique<deskflow::osx::WindowsKeyboardMapper>(
-      options.swapCtrlCmd, options.altTabAppSwitcher, options.ctrlShiftSwitchesLayout
+      options.swapCtrlCmd, options.altTabMode, options.ctrlShiftSwitchesLayout
   );
+  if (options.altTabMode == deskflow::osx::AltTabMode::Builtin) {
+    m_windowSwitcher = std::make_unique<deskflow::osx::OSXWindowSwitcher>();
+  } else {
+    m_windowSwitcher.reset();
+  }
   LOG_INFO(
-      "windows server keyboard: physical keys, windows characters, ctrl/cmd %s, alt+tab app switcher %s, "
+      "windows server keyboard: physical keys, windows characters, ctrl/cmd %s, alt+tab %s, "
       "ctrl+shift input source switch %s",
-      options.swapCtrlCmd ? "swapped" : "unchanged", options.altTabAppSwitcher ? "on" : "off",
+      options.swapCtrlCmd ? "swapped" : "unchanged", deskflow::osx::altTabModeName(options.altTabMode),
       options.ctrlShiftSwitchesLayout ? "on" : "off"
   );
 }
@@ -1127,6 +1132,12 @@ void OSXKeyState::fakeAllKeysUp()
 void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &actions)
 {
   for (const auto &action : actions) {
+    if (action.switcher != deskflow::osx::SwitcherCommand::None) {
+      if (m_windowSwitcher) {
+        m_windowSwitcher->handle(action.switcher);
+      }
+      continue;
+    }
     if (action.switchInputSource) {
       selectNextInputSource();
       continue;
