@@ -973,14 +973,6 @@ void OSXKeyState::enableWindowsKeyboard(const deskflow::osx::WindowsKeyboardOpti
   );
 }
 
-bool OSXKeyState::isRemoteCtrlHeld() const
-{
-  if (m_windowsKeyboard) {
-    return (m_windowsKeyboard->remoteModifiers() & (deskflow::osx::kRemoteCtrlL | deskflow::osx::kRemoteCtrlR)) != 0;
-  }
-  return (getActiveModifiers() & KeyModifierControl) != 0;
-}
-
 void OSXKeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang)
 {
   if (!m_windowsKeyboard) {

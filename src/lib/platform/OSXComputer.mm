@@ -509,7 +509,7 @@ void OSXComputer::postMouseEvent(CGPoint &pos) const
 
 void OSXComputer::postSpecialKey(CGKeyCode key, const char *what)
 {
-  // Ctrl+Up is Mission Control, Ctrl+Down is App Exposé, Ctrl+Left/Right switch Spaces. macOS ignores
+  // Ctrl+Left/Right switch Spaces. macOS ignores
   // a synthetic Control+Arrow unless the fn flag is set as well. The events carry explicit flags
   // (exactly Control|fn), so a held remote Ctrl adds nothing and the keyboard modifier state stays untouched.
   const CGEventFlags flags = kCGEventFlagMaskControl | kCGEventFlagMaskSecondaryFn;
@@ -528,16 +528,12 @@ void OSXComputer::postSpecialKey(CGKeyCode key, const char *what)
 void OSXComputer::fakeMouseButton(ButtonID id, bool press)
 {
   // forward (5) / back (4) are not posted; swallow the release too.
-  // Without Ctrl: forward opens Mission Control, back opens App Exposé. With the server's Ctrl held:
-  // forward goes to the Space on the right, back to the Space on the left.
+  // Forward goes to the Space on the right, back to the Space on the left (one step per press).
   if (m_sideButtonsSwitchSpaces && (id == kButtonExtra0 || id == kButtonExtra1)) {
     if (press) {
       const bool forward = id == kButtonExtra1;
-      if (m_keyState->isRemoteCtrlHeld()) {
-        postSpecialKey(forward ? kVK_RightArrow : kVK_LeftArrow, "switch space");
-      } else {
-        postSpecialKey(forward ? kVK_UpArrow : kVK_DownArrow, "show mission control");
-      }
+      LOG_INFO("side button: one space to the %s", forward ? "right" : "left");
+      postSpecialKey(forward ? kVK_RightArrow : kVK_LeftArrow, "switch space");
     }
     return;
   }

@@ -98,12 +98,6 @@ public:
   bool fakeMediaKey(KeyID id) override;
   KeyModifierMask pollActiveModifiers() const override;
 
-  //! True while the server's physical Ctrl key is held.
-  /*!
-  In Windows keyboard mode the mapper tracks the remote keys (the Ctrl key stays Ctrl even
-  when it is swapped to Command on the Mac). Otherwise Ctrl is the key state's Control modifier.
-  */
-  bool isRemoteCtrlHeld() const;
   int32_t pollActiveGroup() const override;
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
 
