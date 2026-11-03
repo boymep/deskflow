@@ -1131,16 +1131,28 @@ void OSXKeyState::fakeAllKeysUp()
 
 void OSXKeyState::postWindowsKeyboardActions(const deskflow::osx::KeyActions &actions)
 {
+  using Kind = deskflow::osx::KeyAction::Kind;
   for (const auto &action : actions) {
-    if (action.switcher != deskflow::osx::SwitcherCommand::None) {
+    switch (action.kind) {
+    case Kind::Switcher:
       if (m_windowSwitcher) {
         m_windowSwitcher->handle(action.switcher);
       }
       continue;
-    }
-    if (action.switchInputSource) {
+    case Kind::SwitchInputSource:
       selectNextInputSource();
       continue;
+    case Kind::None:
+      // a default-constructed action must never become a key (virtual key 0 is "a")
+      continue;
+    case Kind::Key:
+      break;
+    }
+    if (action.virtualKey == kVK_ANSI_A) {
+      LOG_DEBUG(
+          "posting kVK_ANSI_A %s (from remote key event, modifier=%d, repeat=%d, text=%d)", action.down ? "down" : "up",
+          action.isModifier ? 1 : 0, action.repeat ? 1 : 0, action.text ? 1 : 0
+      );
     }
     if (action.text && postWindowsTextKey(action)) {
       continue;

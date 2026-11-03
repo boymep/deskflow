@@ -213,6 +213,31 @@ void OSXWindowsKeyboardTests::decideEditingExceptions()
   QVERIFY(decideKey(kScY, kVK_ANSI_Y, 0, true).allowText);
 }
 
+void OSXWindowsKeyboardTests::defaultKeyActionIsNoop()
+{
+  const KeyAction action;
+  QVERIFY(action.kind == KeyAction::Kind::None);
+  QCOMPARE(action.virtualKey, MacVirtualKey(0));
+  QVERIFY(action.switcher == SwitcherCommand::None);
+  QVERIFY(!action.switchInputSource);
+}
+
+void OSXWindowsKeyboardTests::plainAKeyIsKeyKindVk0()
+{
+  WindowsKeyboardMapper m(true);
+  KeyActions out;
+  QVERIFY(m.keyDown(kScA, out));
+  QVERIFY(m.keyUp(kScA, out));
+  QCOMPARE(describe(out), QString("K0t k0t"));
+  QCOMPARE(out.size(), size_t(2));
+  for (const auto &a : out) {
+    QVERIFY(a.kind == KeyAction::Kind::Key);
+    QCOMPARE(a.virtualKey, MacVirtualKey(kVK_ANSI_A));
+  }
+  QVERIFY(out[0].down);
+  QVERIFY(!out[1].down);
+}
+
 void OSXWindowsKeyboardTests::mapperPlainShortcut()
 {
   WindowsKeyboardMapper m(true);

@@ -404,6 +404,7 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
         reconcile(restModifiers(), out);
       } else {
         KeyAction action;
+        action.kind = KeyAction::Kind::Switcher;
         action.switcher = command;
         out.push_back(action);
       }
@@ -421,6 +422,7 @@ bool WindowsKeyboardMapper::keyDown(WindowsScancode button, KeyActions &out)
     // nothing reaches the Mac while the switcher is open: release Option (and the rest)
     reconcile(restModifiers(), out);
     KeyAction action;
+    action.kind = KeyAction::Kind::Switcher;
     action.switcher = (m_remote & kRemoteShift) ? SwitcherCommand::OpenReverse : SwitcherCommand::Open;
     out.push_back(action);
     return true;
@@ -471,6 +473,7 @@ bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, Key
       const int32_t steps = std::min(std::max(count, 1), kMaxSteps);
       for (int32_t i = 0; i < steps; ++i) {
         KeyAction action;
+        action.kind = KeyAction::Kind::Switcher;
         action.switcher = command;
         out.push_back(action);
       }
@@ -487,6 +490,7 @@ bool WindowsKeyboardMapper::keyRepeat(WindowsScancode button, int32_t count, Key
   if (decision.virtualKey != pressed.virtualKey) {
     // e.g. Home held, then Ctrl pressed: Left -> Up; release the old key first
     KeyAction up;
+    up.kind = KeyAction::Kind::Key;
     up.virtualKey = pressed.virtualKey;
     up.down = false;
     up.text = pressed.text;
@@ -540,6 +544,7 @@ bool WindowsKeyboardMapper::keyUp(WindowsScancode button, KeyActions &out)
   }
 
   KeyAction up;
+  up.kind = KeyAction::Kind::Key;
   up.virtualKey = pressed.virtualKey;
   up.down = false;
   up.text = pressed.text;
@@ -562,6 +567,7 @@ void WindowsKeyboardMapper::allKeysUp(KeyActions &out)
     auto &pressed = m_pressed[scancode];
     if (pressed.down && !pressed.swallowed && remoteModifierForScancode(static_cast<WindowsScancode>(scancode)) == 0) {
       KeyAction up;
+      up.kind = KeyAction::Kind::Key;
       up.virtualKey = pressed.virtualKey;
       up.down = false;
       up.text = pressed.text;
@@ -596,6 +602,7 @@ void WindowsKeyboardMapper::modifierChanged(KeyActions &out)
     m_chordClean = false;
     if (m_ctrlShiftSwitch) {
       KeyAction action;
+      action.kind = KeyAction::Kind::SwitchInputSource;
       action.switchInputSource = true;
       out.push_back(action);
     }
@@ -637,6 +644,7 @@ void WindowsKeyboardMapper::closeBuiltin(SwitcherCommand command, bool keepAltSu
   m_builtinOpen = false;
   m_altSuppressed = keepAltSuppressed && (m_remote & kRemoteAlt) != 0;
   KeyAction action;
+  action.kind = KeyAction::Kind::Switcher;
   action.switcher = command;
   out.push_back(action);
 }
@@ -676,6 +684,7 @@ void WindowsKeyboardMapper::reconcile(MacModifiers target, KeyActions &out)
   for (const auto modifier : kAllMacModifiers) {
     if (release & modifier) {
       KeyAction action;
+      action.kind = KeyAction::Kind::Key;
       action.virtualKey = macVirtualKeyForModifier(modifier);
       action.down = false;
       action.isModifier = true;
@@ -685,6 +694,7 @@ void WindowsKeyboardMapper::reconcile(MacModifiers target, KeyActions &out)
   for (const auto modifier : kAllMacModifiers) {
     if (press & modifier) {
       KeyAction action;
+      action.kind = KeyAction::Kind::Key;
       action.virtualKey = macVirtualKeyForModifier(modifier);
       action.down = true;
       action.isModifier = true;
@@ -697,6 +707,7 @@ void WindowsKeyboardMapper::reconcile(MacModifiers target, KeyActions &out)
 KeyAction WindowsKeyboardMapper::keyAction(const KeyDecision &decision, bool down) const
 {
   KeyAction action;
+  action.kind = KeyAction::Kind::Key;
   action.virtualKey = decision.virtualKey;
   action.down = down;
   action.text = decision.allowText;

@@ -18,6 +18,8 @@ private Q_SLOTS:
   void decideShortcutsAndText();
   void decideEditingExceptions();
   void mapperPlainShortcut();
+  void defaultKeyActionIsNoop();
+  void plainAKeyIsKeyKindVk0();
   void mapperCtrlBackspace();
   void mapperCtrlTabSticky();
   void mapperHomeEndShift();

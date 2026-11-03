@@ -160,6 +160,14 @@ struct KeyAction
   bool isModifier = false; //!< flagsChanged for a modifier key
   int32_t count = 1;       //!< number of auto-repeats (only if \c repeat)
   bool repeat = false;     //!< auto-repeat of a held key
+  enum class Kind : uint8_t
+  {
+    None, //!< default: posts nothing
+    Key,
+    SwitchInputSource,
+    Switcher,
+  };
+  Kind kind = Kind::None;
   bool text = false;            //!< attach the Windows character of \c textKey
   MacVirtualKey textKey = 0;    //!< virtual key to translate for the character
   bool shift = false;           //!< remote Shift held (for the character)
