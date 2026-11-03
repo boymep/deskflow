@@ -623,6 +623,12 @@ Do you want to connect to the server?
         <translation>Пожалуйста, введите имя хоста или IP-адрес другого компьютера.</translation>
     </message>
     <message>
+        <source>Another %1 process is running but does not respond, and it could not be replaced.
+Please quit it (for example in Activity Monitor) and start again.</source>
+        <translation>Другой процесс %1 запущен, но не отвечает, и заменить его не удалось.
+Завершите его (например, в Мониторе системы) и запустите снова.</translation>
+    </message>
+    <message>
         <source>Save server configuration as...</source>
         <translation>Сохранить конфигурацию сервера как...</translation>
     </message>

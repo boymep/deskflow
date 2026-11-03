@@ -12,7 +12,9 @@
 #include "base/EventQueue.h"
 #include "base/Log.h"
 #include "common/Constants.h"
+#include "common/CoreRecovery.h"
 #include "common/ExitCodes.h"
+#include "common/VersionInfo.h"
 #include "deskflow/ClientApp.h"
 #include "deskflow/ServerApp.h"
 #include "deskflow/ipc/CoreIpcServer.h"
@@ -23,6 +25,7 @@
 
 #include <QApplication>
 #include <QFileInfo>
+#include <QLocalSocket>
 #include <QSharedMemory>
 #include <QTextStream>
 #include <QThread>
@@ -55,6 +58,30 @@ void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, const Q
 void showHelp(const CoreArgParser &parser)
 {
   QTextStream(stdout) << parser.helpText();
+}
+
+/**
+ * @brief Whether another core holds the single-instance lock for real.
+ *
+ * True if a core answers the IPC hello, or, on Unix, if another deskflow-core
+ * process of this user exists (it may be hung; the GUI terminates it).
+ */
+bool otherCoreIsRunning()
+{
+  QLocalSocket socket;
+  socket.connectToServer(kCoreIpcName);
+  if (socket.waitForConnected(1000)) {
+    socket.write(QStringLiteral("hello=%1+%2\n").arg(kVersion, kVersionGitSha).toUtf8());
+    socket.flush();
+    const bool answered = socket.waitForReadyRead(1500);
+    socket.disconnectFromServer();
+    if (answered) {
+      return true;
+    }
+  }
+
+  const auto self = QFileInfo(QCoreApplication::applicationFilePath()).fileName();
+  return !deskflow::core_recovery::findUserProcesses(self, QCoreApplication::applicationPid()).isEmpty();
 }
 
 App *createApp(const CoreArgParser &parser, EventQueue &events, const QString &processName)
@@ -110,8 +137,18 @@ int main(int argc, char **argv)
     sharedMemory.detach();
 
   if (!sharedMemory.create(1) && parser.singleInstanceOnly()) {
-    LOG_WARN("an instance of deskflow core is already running");
-    return s_exitDuplicate;
+    if (otherCoreIsRunning()) {
+      LOG_WARN("an instance of deskflow core is already running");
+      return s_exitDuplicate;
+    }
+    // nobody answers and no other core process exists: the lock is left over
+    // from a core that was killed, so take it over instead of refusing to run
+    LOG_WARN("taking over a stale single instance lock, no other core is running");
+    if (sharedMemory.attach())
+      sharedMemory.detach();
+    if (!sharedMemory.create(1)) {
+      LOG_DEBUG("could not recreate the single instance lock: %s", qPrintable(sharedMemory.errorString()));
+    }
   }
 
   parser.parse();

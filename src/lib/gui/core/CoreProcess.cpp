@@ -7,6 +7,7 @@
 
 #include "CoreProcess.h"
 
+#include "common/CoreRecovery.h"
 #include "common/ExitCodes.h"
 #include "gui/ipc/CoreIpcClient.h"
 #include "gui/ipc/DaemonIpcClient.h"
@@ -23,6 +24,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QMetaEnum>
 #include <QMutexLocker>
 #include <QRegularExpression>
@@ -145,29 +147,159 @@ void CoreProcess::daemonIpcClientConnected()
 
 void CoreProcess::checkExistingProcess()
 {
-  qInfo("checking existing core");
+  qInfo("checking existing core (attempt %d of %d)", m_existingCoreFailures + 1, core_recovery::kContactAttempts);
 
+  // set once this attempt has an outcome; the timeout below covers a core that
+  // accepts the connection but never answers (or never stops when asked)
+  auto settled = std::make_shared<bool>(false);
   auto *client = new ipc::CoreIpcClient(this);
-  connect(client, &ipc::CoreIpcClient::connected, this, [client] {
+  connect(client, &ipc::CoreIpcClient::connected, this, [this, client, settled] {
+    *settled = true;
     qInfo("existing core has matching version, leaving it running");
+    resetDuplicateRecovery();
     client->deleteLater();
   });
   connect(client, &ipc::CoreIpcClient::versionMismatch, this, [client] {
     qInfo("existing core has mismatched version, asking it to stop");
     client->sendStop();
   });
-  connect(client, &ipc::CoreIpcClient::serverShutdown, this, [this, client] {
+  connect(client, &ipc::CoreIpcClient::serverShutdown, this, [this, client, settled] {
+    *settled = true;
     qInfo("existing core stopped successfully");
+    resetDuplicateRecovery();
     client->deleteLater();
     setProcessState(ProcessState::RetryPending);
     m_retryTimer.setSingleShot(true);
     m_retryTimer.start(kRetryDelay);
   });
-  connect(client, &ipc::CoreIpcClient::connectionFailed, this, [client] {
-    qCritical("could not contact existing core");
+  connect(client, &ipc::CoreIpcClient::connectionFailed, this, [this, client, settled] {
+    if (*settled) {
+      return;
+    }
+    *settled = true;
     client->deleteLater();
+    onExistingCoreContactFailed();
+  });
+  QTimer::singleShot(core_recovery::kContactTimeoutMs, client, [this, client, settled] {
+    if (*settled) {
+      return;
+    }
+    *settled = true;
+    qWarning("existing core did not answer in time");
+    client->deleteLater();
+    onExistingCoreContactFailed();
   });
   client->connectToServer();
+}
+
+void CoreProcess::onExistingCoreContactFailed()
+{
+  using enum core_recovery::DuplicateCoreAction;
+  ++m_existingCoreFailures;
+  qWarning(
+      "could not contact existing core (attempt %d of %d)", m_existingCoreFailures, core_recovery::kContactAttempts
+  );
+
+  // the user started or stopped the core meanwhile: that wins over the recovery
+  if (m_processState != ProcessState::Stopped) {
+    qDebug("core process state changed, abandoning existing core recovery");
+    return;
+  }
+
+  switch (core_recovery::afterContactFailed(m_existingCoreFailures, m_orphansTerminated)) {
+  case RetryContact: {
+    const auto generation = m_recoveryGeneration;
+    QTimer::singleShot(core_recovery::kContactRetryDelayMs, this, [this, generation] {
+      if (generation == m_recoveryGeneration && m_processState == ProcessState::Stopped) {
+        checkExistingProcess();
+      }
+    });
+    break;
+  }
+  case TerminateOrphans:
+    terminateOrphanedCores();
+    break;
+  case ReportError:
+    qWarning("existing core is unreachable and could not be replaced");
+    resetDuplicateRecovery();
+    Q_EMIT error(Error::ExistingCoreUnreachable);
+    break;
+  }
+}
+
+void CoreProcess::terminateOrphanedCores()
+{
+  m_orphansTerminated = true;
+  const qint64 ownCore = (m_process && m_process->state() != QProcess::NotRunning) ? m_process->processId() : 0;
+  const auto name = QFileInfo(m_appPath).fileName();
+  const auto pids = core_recovery::findUserProcesses(name, ownCore);
+  if (pids.isEmpty()) {
+    // nothing to stop: the single-instance lock is stale, a fresh core cleans it up
+    qInfo("no other core process found, starting a fresh core");
+    restartAfterRecovery();
+    return;
+  }
+
+  for (const auto pid : pids) {
+    qInfo("terminating unresponsive core process %lld", static_cast<long long>(pid));
+    core_recovery::terminateProcess(pid, false);
+  }
+  waitForOrphanedCores(pids, 0, m_recoveryGeneration);
+}
+
+void CoreProcess::waitForOrphanedCores(const QList<qint64> &pids, int waitedMs, int generation)
+{
+  if (generation != m_recoveryGeneration) {
+    return;
+  }
+
+  QList<qint64> alive;
+  for (const auto pid : pids) {
+    if (core_recovery::isProcessAlive(pid)) {
+      alive.append(pid);
+    }
+  }
+
+  if (alive.isEmpty()) {
+    restartAfterRecovery();
+    return;
+  }
+
+  if (waitedMs >= core_recovery::kTerminateTimeoutMs) {
+    for (const auto pid : std::as_const(alive)) {
+      qWarning("core process %lld ignored SIGTERM, killing it", static_cast<long long>(pid));
+      core_recovery::terminateProcess(pid, true);
+    }
+    // SIGKILL cannot be ignored; give the kernel a moment before the restart
+    QTimer::singleShot(kRetryDelay, this, [this, generation] {
+      if (generation == m_recoveryGeneration) {
+        restartAfterRecovery();
+      }
+    });
+    return;
+  }
+
+  QTimer::singleShot(core_recovery::kTerminatePollMs, this, [this, alive, waitedMs, generation] {
+    waitForOrphanedCores(alive, waitedMs + core_recovery::kTerminatePollMs, generation);
+  });
+}
+
+void CoreProcess::restartAfterRecovery()
+{
+  if (m_processState != ProcessState::Stopped) {
+    qDebug("core process state changed, not restarting after recovery");
+    return;
+  }
+  m_existingCoreFailures = 0;
+  setProcessState(ProcessState::RetryPending);
+  m_retryTimer.setSingleShot(true);
+  m_retryTimer.start(kRetryDelay);
+}
+
+void CoreProcess::resetDuplicateRecovery()
+{
+  m_existingCoreFailures = 0;
+  m_orphansTerminated = false;
 }
 
 void CoreProcess::onProcessFinished(int exitCode, QProcess::ExitStatus)
@@ -182,14 +314,18 @@ void CoreProcess::onProcessFinished(int exitCode, QProcess::ExitStatus)
   if (exitCode != s_exitSuccess) {
     setProcessState(Stopped);
     if (exitCode == s_exitDuplicate) {
+      // a new duplicate cycle; m_orphansTerminated stays set if the last one already replaced a core
+      m_existingCoreFailures = 0;
       checkExistingProcess();
       return;
     }
+    resetDuplicateRecovery();
     qWarning("desktop process exited with code: %d", exitCode);
     return;
   }
 
   qDebug("desktop process exited normally");
+  resetDuplicateRecovery();
 
   if (const auto wasStarted = m_processState == Started; wasStarted) {
     qDebug("desktop process was running, retrying in %d ms", kRetryDelay);
@@ -506,6 +642,10 @@ void CoreProcess::stop(std::optional<ProcessMode> processModeOption)
   const auto processMode = processModeOption.value_or(currentMode);
 
   qInfo("stopping core process (%s mode)", qPrintable(processModeToString(processMode)));
+
+  // cancels a pending existing core recovery
+  ++m_recoveryGeneration;
+  resetDuplicateRecovery();
 
   if (m_coreIpcClient && processMode != ProcessMode::Desktop) {
     m_coreIpcClient->disconnectFromServer();

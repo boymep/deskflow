@@ -35,7 +35,8 @@ public:
   enum class Error
   {
     AddressMissing,
-    StartFailed
+    StartFailed,
+    ExistingCoreUnreachable
   };
 
   explicit CoreProcess(const ServerConfig &serverConfig);
@@ -115,6 +116,11 @@ private:
   QString correctedAddress(const QString &address) const;
   void setupDaemonLogTail(const QString &logPath);
   void checkExistingProcess();
+  void onExistingCoreContactFailed();
+  void terminateOrphanedCores();
+  void waitForOrphanedCores(const QList<qint64> &pids, int waitedMs, int generation);
+  void restartAfterRecovery();
+  void resetDuplicateRecovery();
   static QString makeQuotedArgs(const QString &app, const QStringList &args);
   static QString processModeToString(const Settings::ProcessMode mode);
   static QString processStateToString(const CoreProcess::ProcessState state);
@@ -134,6 +140,9 @@ private:
   FileTail *m_daemonFileTail = nullptr;
   QProcess *m_process = nullptr;
   QString m_appPath;
+  int m_existingCoreFailures = 0;  // failed attempts to reach the core that holds the single-instance lock
+  bool m_orphansTerminated = false; // leftover cores were already terminated in this recovery
+  int m_recoveryGeneration = 0;     // bumped by stop() to cancel pending recovery steps
 };
 
 } // namespace deskflow::gui

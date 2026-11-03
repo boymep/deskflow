@@ -402,6 +402,14 @@ void MainWindow::coreProcessError(CoreProcess::Error error)
                          .arg(mode, Settings::serverConfigFile()));
     }
     QMessageBox::warning(this, kAppName, message);
+  } else if (error == CoreProcess::Error::ExistingCoreUnreachable) {
+    show();
+    QMessageBox::warning(
+        this, kAppName,
+        tr("Another %1 process is running but does not respond, and it could not be replaced.\n"
+           "Please quit it (for example in Activity Monitor) and start again.")
+            .arg(kCoreBinName)
+    );
   }
 }
 
