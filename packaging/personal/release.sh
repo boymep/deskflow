@@ -21,6 +21,8 @@
 set -euo pipefail
 
 REPO=/Users/boymep/Projects/deskflow
+BUILD=build.noindex   # .noindex folders are skipped by Spotlight
+DIST=dist.noindex
 GH_REPO=boymep/deskflow
 BRANCH=deskflow
 ZIP=Deskflow-arm64.zip
@@ -50,10 +52,10 @@ COMMIT=$(git rev-parse HEAD)
 [ -z "$(git status --porcelain)" ] || die "the build changed tracked files"
 
 # 3. Version and tag from the build itself
-VERSION=$(sed -n 's/^const auto kVersion = "\(.*\)";$/\1/p' build/src/lib/common/VersionInfo.h)
+VERSION=$(sed -n 's/^const auto kVersion = "\(.*\)";$/\1/p' "$BUILD"/src/lib/common/VersionInfo.h)
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "unexpected version '$VERSION'"
 TAG="v$VERSION"
-CORE_VERSION=$(env -u DYLD_PRINT_LIBRARIES dist/Deskflow.app/Contents/MacOS/deskflow-core --version 2>&1 | head -1)
+CORE_VERSION=$(env -u DYLD_PRINT_LIBRARIES "$DIST"/Deskflow.app/Contents/MacOS/deskflow-core --version 2>&1 | head -1)
 [[ "$CORE_VERSION" == *"$VERSION"* ]] || die "packaged app reports '$CORE_VERSION', expected $VERSION"
 TAG_CHECK=0
 git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null || TAG_CHECK=$?
@@ -61,20 +63,20 @@ git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null || TAG_CHECK
 [ "$TAG_CHECK" = 2 ] || die "could not list the tags on origin"
 
 # 4. Checksum file with the bare file name, verified right away
-[ -f "dist/$ZIP" ] || die "dist/$ZIP is missing"
-SIZE=$(stat -f %z "dist/$ZIP")
-[ "$SIZE" -le "$MAX_ZIP_BYTES" ] || die "dist/$ZIP is larger than the 300 MB the app accepts"
-(cd dist && shasum -a 256 "$ZIP" > "$SHA" && shasum -a 256 -c "$SHA" >/dev/null) || die "checksum check failed"
+[ -f "$DIST/$ZIP" ] || die "$DIST/$ZIP is missing"
+SIZE=$(stat -f %z "$DIST/$ZIP")
+[ "$SIZE" -le "$MAX_ZIP_BYTES" ] || die "$DIST/$ZIP is larger than the 300 MB the app accepts"
+(cd "$DIST" && shasum -a 256 "$ZIP" > "$SHA" && shasum -a 256 -c "$SHA" >/dev/null) || die "checksum check failed"
 
 echo "version: $VERSION"
 echo "tag:     $TAG"
 echo "commit:  $COMMIT"
-echo "zip:     $REPO/dist/$ZIP ($SIZE bytes)"
-echo "sha256:  $(cat "dist/$SHA")"
+echo "zip:     $REPO/$DIST/$ZIP ($SIZE bytes)"
+echo "sha256:  $(cat "$DIST/$SHA")"
 
 # 5. Publish
 PUBLISH=(gh release create "$TAG" --repo "$GH_REPO" --target "$COMMIT" --title "Deskflow $VERSION"
-  --generate-notes --latest "dist/$ZIP" "dist/$SHA")
+  --generate-notes --latest "$DIST/$ZIP" "$DIST/$SHA")
 if [ "$DRY_RUN" = 1 ]; then
   echo "dry run, not running: ${PUBLISH[*]}"
   exit 0

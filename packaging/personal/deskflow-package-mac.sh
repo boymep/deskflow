@@ -4,15 +4,17 @@
 # brew's split Qt kegs (QtSvg/QtPdf/QtVirtualKeyboard), so macdeployqt is run manually with -libpath.
 set -eo pipefail
 REPO=/Users/boymep/Projects/deskflow
-LOG_DIR="${LOG_DIR:-$REPO/build}"
+BUILD=build.noindex   # .noindex folders are skipped by Spotlight
+DIST=dist.noindex
+LOG_DIR="${LOG_DIR:-$REPO/$BUILD}"
 cd "$REPO"
-cmake build >/dev/null                         # re-configure so GIT_SHA_SHORT matches HEAD
-cmake --build build -j"$(sysctl -n hw.ncpu)" | tail -3 || cmake --build build | tail -3   # retry once: OSXKeyStateTests is occasionally flaky (uses live keyboard state)
+cmake "$BUILD" >/dev/null                         # re-configure so GIT_SHA_SHORT matches HEAD
+cmake --build "$BUILD" -j"$(sysctl -n hw.ncpu)" | tail -3 || cmake --build "$BUILD" | tail -3   # retry once: OSXKeyStateTests is occasionally flaky (uses live keyboard state)
 git checkout -- translations
-rm -rf dist && mkdir dist                       # dist/ is git-ignored
-ditto build/bin/Deskflow.app dist/Deskflow.app
-C=dist/Deskflow.app/Contents
-"$(brew --prefix qt)/bin/macdeployqt" dist/Deskflow.app \
+rm -rf "$DIST" && mkdir "$DIST"                       # $DIST is git-ignored
+ditto "$BUILD"/bin/Deskflow.app "$DIST"/Deskflow.app
+C="$DIST"/Deskflow.app/Contents
+"$(brew --prefix qt)/bin/macdeployqt" "$DIST"/Deskflow.app \
   -executable=$C/MacOS/deskflow-core \
   -libpath=/opt/homebrew/lib -libpath="$(brew --prefix openssl@3)/lib" > "$LOG_DIR/deskflow-macdeployqt.log" 2>&1
 # QtSvg (needed for the app's SVG icon theme) is not picked up from the qtsvg keg: bundle by hand
@@ -41,7 +43,7 @@ done
 install_name_tool -add_rpath @executable_path/../Frameworks $C/MacOS/Deskflow 2>/dev/null || true
 printf '[Paths]\nPlugins = PlugIns\nImports = Resources/qml\nQml2Imports = Resources/qml\n' > $C/Resources/qt.conf
 # Sign and verify
-xattr -cr dist/Deskflow.app
+xattr -cr "$DIST"/Deskflow.app
 # Stable self-signed identity keeps the designated requirement (and TCC grants) the same across builds.
 # Create it once with packaging/personal/setup-signing.sh. The bundle id (org.deskflow.deskflow) comes from
 # Info.plist, so the code identifier stays stable. Hardened runtime is off: see HARDENED below.
@@ -62,12 +64,12 @@ sign() { codesign --force --sign "$SIGN_HASH" --keychain "$SIGN_KC" --timestamp=
 find $C -type f \( -name '*.dylib' -o -name '*.so' \) -print0 | while IFS= read -r -d '' f; do sign "$f"; done
 for fw in $C/Frameworks/*.framework; do sign "$fw"; done
 sign $C/MacOS/deskflow-core
-sign dist/Deskflow.app
-codesign --verify --deep --strict --verbose=2 dist/Deskflow.app
-codesign -d -r- dist/Deskflow.app
+sign "$DIST"/Deskflow.app
+codesign --verify --deep --strict --verbose=2 "$DIST"/Deskflow.app
+codesign -d -r- "$DIST"/Deskflow.app
 # Offending absolute refs (must be 0)
-echo "offending refs: $("$REPO/packaging/personal/check-refs.sh" dist/Deskflow.app | wc -l | tr -d ' ')"
+echo "offending refs: $("$REPO/packaging/personal/check-refs.sh" "$DIST"/Deskflow.app | wc -l | tr -d ' ')"
 # Zip without AppleDouble ._ files: other unzip tools turn them into real files and break the code seal
-ditto -c -k --norsrc --noextattr --noqtn --keepParent dist/Deskflow.app dist/Deskflow-arm64.zip
-ls -l dist/Deskflow-arm64.zip; shasum -a 256 dist/Deskflow-arm64.zip
-env -u DYLD_PRINT_LIBRARIES dist/Deskflow.app/Contents/MacOS/deskflow-core --version | head -1
+ditto -c -k --norsrc --noextattr --noqtn --keepParent "$DIST"/Deskflow.app "$DIST"/Deskflow-arm64.zip
+ls -l "$DIST"/Deskflow-arm64.zip; shasum -a 256 "$DIST"/Deskflow-arm64.zip
+env -u DYLD_PRINT_LIBRARIES "$DIST"/Deskflow.app/Contents/MacOS/deskflow-core --version | head -1
