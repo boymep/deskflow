@@ -113,6 +113,8 @@ elseif(APPLE)
     OSXScreenSaverUtil.m
     OSXWindowsKeyboard.cpp
     OSXWindowsKeyboard.h
+    OSXWindowSwitcherModel.cpp
+    OSXWindowSwitcherModel.h
   )
 elseif(UNIX)
   set(PLATFORM_SOURCES
