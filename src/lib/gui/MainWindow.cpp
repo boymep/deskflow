@@ -303,6 +303,8 @@ void MainWindow::connectSlots()
   connect(m_statusBar, &StatusBar::requestShowMyFingerprints, this, &MainWindow::showMyFingerprint);
   connect(m_statusBar, &StatusBar::requestUpdateVersion, m_updateFlow, &updates::UpdateFlow::offerDownload);
   connect(m_updateFlow, &updates::UpdateFlow::updateFound, m_statusBar, &StatusBar::updateFound);
+  // quit like the Quit action, so settings are saved and the core process is stopped
+  connect(m_updateFlow, &updates::UpdateFlow::restartRequested, this, &MainWindow::close);
 
   connect(m_guiDupeChecker, &QLocalServer::newConnection, this, &MainWindow::showAndActivate);
 
@@ -636,15 +638,7 @@ void MainWindow::open()
   const auto kCriticalDialogDelay = 100;
   QTimer::singleShot(kCriticalDialogDelay, this, &messages::raiseCriticalDialog);
 
-  if (!Settings::value(Settings::Gui::AutoUpdateCheck).isValid()) {
-    Settings::setValue(Settings::Gui::AutoUpdateCheck, messages::showUpdateCheckOption(this));
-  }
-
-  if (Settings::value(Settings::Gui::AutoUpdateCheck).toBool()) {
-    m_updateFlow->checkOnStartup();
-  } else {
-    qDebug() << "skipping check for new version, disabled";
-  }
+  m_updateFlow->checkOnStartup();
 
   if (Settings::value(Settings::Gui::AutoStartCore).toBool()) {
     if (ui->rbModeClient->isChecked() && ui->lineHostname->text().isEmpty())

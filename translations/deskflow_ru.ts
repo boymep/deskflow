@@ -887,18 +887,6 @@ Additionally, check you are able to %1 the server config file: %2</source>
         <translation>Новый клиент &apos;%1&apos; хочет подключиться</translation>
     </message>
     <message>
-        <source>No thanks</source>
-        <translation>Нет, спасибо</translation>
-    </message>
-    <message>
-        <source>Check for updates</source>
-        <translation>Проверить обновления</translation>
-    </message>
-    <message>
-        <source>&lt;p&gt;Would you like to check for updates when %1 starts?&lt;/p&gt;&lt;p&gt;Checking for updates requires an Internet connection.&lt;/p&gt;&lt;p&gt;URL: &lt;pre&gt;%2&lt;/pre&gt;&lt;/p&gt;</source>
-        <translation>&lt;p&gt;Проверять наличие обновлений при запуске %1?&lt;/p&gt;&lt;p&gt;Для проверки обновлений требуется интернет-соединение.&lt;/p&gt;&lt;p&gt;URL: &lt;pre&gt;%2&lt;/pre&gt;&lt;/p&gt;</translation>
-    </message>
-    <message>
         <source>Background service offline</source>
         <translation>Фоновая служба отключена</translation>
     </message>
@@ -1170,10 +1158,6 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Настройки</translation>
     </message>
     <message>
-        <source>Check for updates on startup</source>
-        <translation>Проверять обновления при запуске</translation>
-    </message>
-    <message>
         <source>Prevent this computer from going to sleep</source>
         <translation>Запретить компьютеру переходить в спящий режим</translation>
     </message>
@@ -1294,34 +1278,6 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Подробный вывод отладки</translation>
     </message>
     <message>
-        <source>A fine-grained GitHub token with read-only Contents access to the release repository.</source>
-        <translation>Детализированный токен GitHub с доступом «только чтение» к Contents репозитория релизов.</translation>
-    </message>
-    <message>
-        <source>It is stored in the %1.</source>
-        <translation>Хранится в хранилище: %1.</translation>
-    </message>
-    <message>
-        <source>Only available on macOS and Windows</source>
-        <translation>Доступно только в macOS и Windows</translation>
-    </message>
-    <message>
-        <source>Saved in the %1</source>
-        <translation>Сохранён в хранилище: %1</translation>
-    </message>
-    <message>
-        <source>Paste a token to check for updates</source>
-        <translation>Вставьте токен для проверки обновлений</translation>
-    </message>
-    <message>
-        <source>The GitHub token contains spaces or unsupported characters.</source>
-        <translation>Токен GitHub содержит пробелы или неподдерживаемые символы.</translation>
-    </message>
-    <message>
-        <source>Could not save the GitHub token to the %1.</source>
-        <translation>Не удалось сохранить токен GitHub в хранилище: %1.</translation>
-    </message>
-    <message>
         <source>Automatic</source>
         <translation>Автоматически</translation>
     </message>
@@ -1384,18 +1340,6 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Remove all settings</source>
         <translation>Удалить все настройки</translation>
-    </message>
-    <message>
-        <source>GitHub token</source>
-        <translation>Токен GitHub</translation>
-    </message>
-    <message>
-        <source>A fine-grained GitHub token with read-only Contents access to the release repository. It is stored in the macOS Keychain.</source>
-        <translation type="vanished">Детализированный токен GitHub с доступом «только чтение» к Contents репозитория релизов. Хранится в связке ключей macOS.</translation>
-    </message>
-    <message>
-        <source>Forget</source>
-        <translation>Забыть</translation>
     </message>
     <message>
         <source>Check for updates now</source>
@@ -1504,17 +1448,6 @@ Enabling this setting will disable the server config GUI.</source>
     </message>
 </context>
 <context>
-    <name>UpdateTokenStore</name>
-    <message>
-        <source>macOS Keychain</source>
-        <translation>Связка ключей macOS</translation>
-    </message>
-    <message>
-        <source>Windows Credential Manager</source>
-        <translation>Диспетчер учётных данных Windows</translation>
-    </message>
-</context>
-<context>
     <name>deskflow::gui::updates::GitHubUpdater</name>
     <message>
         <source>The download was cancelled.</source>
@@ -1549,12 +1482,8 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Файл контрольных сумм релиза некорректен.</translation>
     </message>
     <message>
-        <source>Could not find the Downloads folder.</source>
-        <translation>Не удалось найти папку «Загрузки».</translation>
-    </message>
-    <message>
-        <source>Could not choose a file name in the Downloads folder.</source>
-        <translation>Не удалось подобрать имя файла в папке «Загрузки».</translation>
+        <source>Could not create a temporary folder for the update.</source>
+        <translation>Не удалось создать временную папку для обновления.</translation>
     </message>
     <message>
         <source>Could not create %1.</source>
@@ -1581,12 +1510,12 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>В обновлении нет %1, как ожидалось. Ничего не установлено.</translation>
     </message>
     <message>
-        <source>GitHub rejected the token (HTTP %1). Check that it is valid and can read %2/%3.</source>
-        <translation>GitHub отклонил токен (HTTP %1). Проверьте, что он действителен и может читать %2/%3.</translation>
+        <source>GitHub refused the request (HTTP %1). The rate limit may be reached, try again later.</source>
+        <translation>GitHub отклонил запрос (HTTP %1). Возможно, достигнут лимит запросов, повторите позже.</translation>
     </message>
     <message>
-        <source>No release was found (HTTP 404). Either nothing is published yet or the token cannot see %1/%2.</source>
-        <translation>Релиз не найден (HTTP 404). Либо ничего ещё не опубликовано, либо токен не видит %1/%2.</translation>
+        <source>No release was found (HTTP 404). Either nothing is published yet or the repository %1/%2 is not public.</source>
+        <translation>Релиз не найден (HTTP 404). Либо ничего ещё не опубликовано, либо репозиторий %1/%2 не публичный.</translation>
     </message>
     <message>
         <source>GitHub answered with HTTP %1.</source>
@@ -1628,12 +1557,12 @@ Enabling this setting will disable the server config GUI.</source>
         <translation>Доступна версия %1 %2. У вас %3.</translation>
     </message>
     <message>
-        <source>Download it to your Downloads folder? You install it yourself after the download.</source>
-        <translation>Скачать в папку «Загрузки»? После загрузки вы устанавливаете обновление сами.</translation>
+        <source>Download and install it now? %1 will restart.</source>
+        <translation>Скачать и установить сейчас? %1 перезапустится.</translation>
     </message>
     <message>
-        <source>Download</source>
-        <translation>Скачать</translation>
+        <source>Install</source>
+        <translation>Установить</translation>
     </message>
     <message>
         <source>Later</source>
@@ -1650,14 +1579,6 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Update</source>
         <translation>Обновление</translation>
-    </message>
-    <message>
-        <source>Checking for updates is only available on macOS and Windows.</source>
-        <translation>Проверка обновлений доступна только в macOS и Windows.</translation>
-    </message>
-    <message>
-        <source>&lt;p&gt;To check for updates, add a GitHub token in Settings.&lt;/p&gt;&lt;p&gt;Create a fine-grained token with read-only &lt;b&gt;Contents&lt;/b&gt; access to the %1/%2 repository. It is stored in the %3.&lt;/p&gt;</source>
-        <translation>&lt;p&gt;Чтобы проверять обновления, добавьте токен GitHub в настройках.&lt;/p&gt;&lt;p&gt;Создайте детализированный токен с доступом «только чтение» к &lt;b&gt;Contents&lt;/b&gt; репозитория %1/%2. Он хранится в хранилище: %3.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>Could not check for updates.
@@ -1682,16 +1603,12 @@ Latest release: %2</source>
         <translation>Распаковка...</translation>
     </message>
     <message>
-        <source>Update downloaded</source>
-        <translation>Обновление загружено</translation>
+        <source>The update was downloaded but could not be installed automatically. It is shown in %1, install it by hand.</source>
+        <translation>Обновление загружено, но установить его автоматически не удалось. Оно показано в %1, установите его вручную.</translation>
     </message>
     <message>
-        <source>&lt;p&gt;The new version is ready in &lt;b&gt;%1&lt;/b&gt; and is shown in Explorer.&lt;/p&gt;&lt;p&gt;To install it:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Quit %2.&lt;/li&gt;&lt;li&gt;Run &lt;b&gt;%3&lt;/b&gt; and follow the installer.&lt;/li&gt;&lt;li&gt;Start %2 again.&lt;/li&gt;&lt;/ol&gt;</source>
-        <translation>&lt;p&gt;Новая версия готова в &lt;b&gt;%1&lt;/b&gt; и показана в Проводнике.&lt;/p&gt;&lt;p&gt;Чтобы установить её:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Закройте %2.&lt;/li&gt;&lt;li&gt;Запустите &lt;b&gt;%3&lt;/b&gt; и следуйте указаниям установщика.&lt;/li&gt;&lt;li&gt;Снова запустите %2.&lt;/li&gt;&lt;/ol&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;p&gt;The new version is ready in &lt;b&gt;%1&lt;/b&gt; and is shown in Finder.&lt;/p&gt;&lt;p&gt;To install it:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Quit %2.&lt;/li&gt;&lt;li&gt;Drag %3 from the Finder window to the Applications folder.&lt;/li&gt;&lt;li&gt;Choose &lt;b&gt;Replace&lt;/b&gt; when asked.&lt;/li&gt;&lt;li&gt;Open %2 from Applications.&lt;/li&gt;&lt;/ol&gt;</source>
-        <translation>&lt;p&gt;Новая версия готова в &lt;b&gt;%1&lt;/b&gt; и показана в Finder.&lt;/p&gt;&lt;p&gt;Чтобы установить её:&lt;/p&gt;&lt;ol&gt;&lt;li&gt;Закройте %2.&lt;/li&gt;&lt;li&gt;Перетащите %3 из окна Finder в папку «Программы».&lt;/li&gt;&lt;li&gt;Когда спросят, выберите &lt;b&gt;Заменить&lt;/b&gt;.&lt;/li&gt;&lt;li&gt;Откройте %2 из папки «Программы».&lt;/li&gt;&lt;/ol&gt;</translation>
+        <source>Installing the update. %1 will restart.</source>
+        <translation>Устанавливается обновление. %1 перезапустится.</translation>
     </message>
     <message>
         <source>The update could not be downloaded.

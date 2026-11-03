@@ -6,6 +6,8 @@
 
 #include "UpdateUtils.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -203,16 +205,129 @@ bool isAllowedRedirectUrl(const QUrl &url)
   return host == QStringLiteral("github.com") || (host.endsWith(suffix) && host.size() > suffix.size());
 }
 
-bool isPlausibleToken(const QString &token)
-{
-  if (token.isEmpty() || token.size() > kMaxTokenLength)
-    return false;
 
-  for (const auto c : token) {
-    if (c.unicode() <= 0x20 || c.unicode() >= 0x7f)
-      return false;
+QString bundlePathFromAppDir(const QString &appDir)
+{
+  const QFileInfo macOs(QDir::cleanPath(appDir));
+  const QFileInfo contents(macOs.absolutePath());
+  const QFileInfo bundle(contents.absolutePath());
+  if (appDir.isEmpty() || macOs.fileName() != QStringLiteral("MacOS") ||
+      contents.fileName() != QStringLiteral("Contents") || !bundle.fileName().endsWith(QStringLiteral(".app")) ||
+      bundle.fileName() == QStringLiteral(".app"))
+    return {};
+  return bundle.absoluteFilePath();
+}
+
+bool isAdhocSignature(const QString &codesignInfo)
+{
+  const auto lines = codesignInfo.split(QLatin1Char('\n'));
+  bool hasAuthority = false;
+  for (const auto &line : lines) {
+    const auto trimmed = line.trimmed();
+    if (trimmed == QStringLiteral("Signature=adhoc"))
+      return true;
+    if (trimmed.startsWith(QStringLiteral("Authority=")))
+      hasAuthority = true;
   }
-  return true;
+  return !hasAuthority;
+}
+
+QString designatedRequirement(const QString &codesignOutput)
+{
+  const auto prefix = QStringLiteral("designated => ");
+  const auto lines = codesignOutput.split(QLatin1Char('\n'));
+  for (const auto &line : lines) {
+    // an ad-hoc signature only has an implicit requirement, printed as "# designated => cdhash ..."
+    if (line.startsWith(prefix))
+      return line.mid(prefix.size()).trimmed();
+  }
+  return {};
+}
+
+QString macInstallScript()
+{
+  return QStringLiteral(R"sh(#!/bin/sh
+# Deskflow update helper: installs the new app after the old one has quit and opens it.
+# Arguments: pid new_app target work_dir backup log
+pid="$1"
+new_app="$2"
+target="$3"
+work_dir="$4"
+backup="$5"
+log="$6"
+
+exec >>"$log" 2>&1
+echo "$(/bin/date): installing $new_app to $target"
+
+waited=0
+while kill -0 "$pid" 2>/dev/null; do
+  if [ "$waited" -ge 60 ]; then
+    echo "the app did not quit within 30 seconds, nothing was installed"
+    exit 1
+  fi
+  waited=$((waited + 1))
+  /bin/sleep 0.5
+done
+
+if [ -e "$backup" ]; then
+  echo "the backup path already exists, nothing was installed: $backup"
+  /usr/bin/open "$target"
+  exit 1
+fi
+
+if ! /bin/mv "$target" "$backup"; then
+  echo "could not move the old app aside, nothing was installed"
+  /usr/bin/open "$target"
+  exit 1
+fi
+
+if ! /bin/mv "$new_app" "$target"; then
+  echo "could not move the new app into place, restoring the old app"
+  /bin/rm -rf "$target"
+  /bin/mv "$backup" "$target"
+  /usr/bin/open "$target"
+  exit 1
+fi
+
+/usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null
+/usr/bin/open "$target"
+/bin/rm -rf "$backup" "$work_dir"
+echo "$(/bin/date): installed"
+)sh");
+}
+
+QString powerShellQuote(const QString &text)
+{
+  auto escaped = text;
+  escaped.replace(QLatin1Char('\''), QStringLiteral("''"));
+  return QLatin1Char('\'') + escaped + QLatin1Char('\'');
+}
+
+QString windowsInstallScript(const QString &msiPath, const QString &exePath, const QString &workDir, qint64 pid)
+{
+  // Start-Process joins ArgumentList without quoting, so the msi path gets its own double quotes.
+  // A Windows path cannot contain a double quote.
+  const auto msiArguments = QStringLiteral("/i \"%1\" /passive /norestart").arg(msiPath);
+  return QStringLiteral("$ErrorActionPreference = 'SilentlyContinue'\n"
+                        "Wait-Process -Id %1 -Timeout 30\n"
+                        "try {\n"
+                        "  Start-Process -FilePath 'msiexec.exe' -ArgumentList %2 -Verb RunAs -Wait -ErrorAction Stop\n"
+                        "} catch {\n"
+                        "}\n"
+                        "Start-Process -FilePath %3\n"
+                        "Remove-Item -LiteralPath %4 -Recurse -Force\n")
+      .arg(QString::number(pid), powerShellQuote(msiArguments), powerShellQuote(exePath), powerShellQuote(workDir));
+}
+
+QByteArray powerShellEncodedCommand(const QString &script)
+{
+  QByteArray utf16;
+  utf16.reserve(script.size() * 2);
+  for (const auto c : script) {
+    utf16.append(static_cast<char>(c.unicode() & 0xff));
+    utf16.append(static_cast<char>(c.unicode() >> 8));
+  }
+  return utf16.toBase64();
 }
 
 } // namespace deskflow::gui::updates

@@ -20,11 +20,10 @@ class QProcess;
 namespace deskflow::gui::updates {
 
 /**
- * @brief Checks the private GitHub repository for a newer release, downloads the app zip
- * into the Downloads folder, verifies its SHA-256 and unpacks it (macOS).
+ * @brief Checks the public GitHub repository for a newer release, downloads the app zip (macOS)
+ * or msi (Windows) into a new temporary folder, verifies its SHA-256 and unpacks the zip.
  *
- * Only outgoing HTTPS requests are made. The token goes to api.github.com only: redirects
- * are followed by hand and never carry the Authorization header.
+ * Only outgoing HTTPS requests are made. Redirects are followed by hand and only to allowed hosts.
  */
 class GitHubUpdater : public QObject
 {
@@ -33,22 +32,24 @@ public:
   explicit GitHubUpdater(QObject *parent = nullptr);
   ~GitHubUpdater() override;
 
-  /// Starts a check. Emits noToken, checkFailed, upToDate or updateAvailable.
+  /// Starts a check. Emits checkFailed, upToDate or updateAvailable.
   void checkLatest();
   /// Downloads the release found by the last successful check.
   void downloadLatest();
   void cancel();
   bool isBusy() const;
   QString latestVersion() const;
+  /// Temporary folder of the last download. It is not removed automatically.
+  QString workDir() const;
 
 Q_SIGNALS:
-  void noToken();
   void checkFailed(const QString &message);
   void upToDate(const QString &version);
   void updateAvailable(const QString &version);
   void downloadProgress(qint64 received, qint64 total);
   void unpacking();
-  void downloadFinished(const QString &appPath);
+  /// The verified update: the unpacked Deskflow.app (macOS) or the msi (Windows).
+  void downloadFinished(const QString &updatePath);
   void downloadFailed(const QString &message);
 
 private:
@@ -61,7 +62,7 @@ private:
     Unpacking
   };
 
-  void fetch(const QUrl &url, bool withToken, const QByteArray &accept, qint64 maxSize);
+  void fetch(const QUrl &url, const QByteArray &accept, qint64 maxSize);
   void handleMetaData();
   void handleReadyRead();
   void handleFinished();
@@ -80,7 +81,6 @@ private:
   QPointer<QNetworkReply> m_reply;
   QPointer<QProcess> m_process;
   Phase m_phase = Phase::Idle;
-  QString m_token;
   QByteArray m_accept;
   qint64 m_maxSize = 0;
   qint64 m_received = 0;
@@ -93,6 +93,7 @@ private:
   QByteArray m_expectedSha;
   QString m_zipPath;
   QString m_unpackDir;
+  QString m_workDir;
 };
 
 } // namespace deskflow::gui::updates

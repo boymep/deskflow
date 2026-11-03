@@ -15,7 +15,6 @@
 #include "common/Settings.h"
 #include "gui/TlsUtility.h"
 #include "gui/core/NetworkMonitor.h"
-#include "gui/updates/UpdateTokenStore.h"
 #include "gui/updates/UpdateUtils.h"
 #include "gui/widgets/SettingsDialogButtonBox.h"
 
@@ -131,9 +130,6 @@ void SettingsDialog::initConnections() const
   connect(ui->cbPreventSleep, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->rbCloseToTray, &QRadioButton::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbElevateDaemon, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
-  connect(ui->cbAutoUpdate, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
-  connect(ui->lineUpdateToken, &QLineEdit::textChanged, this, &SettingsDialog::setButtonBoxEnabledButtons);
-  connect(ui->btnForgetUpdateToken, &QPushButton::clicked, this, &SettingsDialog::forgetUpdateToken);
   connect(ui->btnCheckUpdates, &QPushButton::clicked, this, &SettingsDialog::checkUpdatesNow);
   connect(ui->cbGuiDebug, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbShowVersion, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
@@ -225,9 +221,6 @@ void SettingsDialog::updateText()
 
 void SettingsDialog::accept()
 {
-  if (!saveUpdateToken())
-    return;
-
   Settings::setValue(Settings::Core::Port, ui->sbPort->value());
   Settings::setValue(Settings::Core::Interface, ui->comboInterface->currentData());
   Settings::setValue(Settings::Log::Level, ui->comboLogLevel->currentData());
@@ -235,7 +228,6 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Log::File, ui->lineLogFilename->text());
   Settings::setValue(Settings::Daemon::Elevate, ui->cbElevateDaemon->isChecked());
   Settings::setValue(Settings::Gui::Autohide, ui->rbAutoHide->isChecked());
-  Settings::setValue(Settings::Gui::AutoUpdateCheck, ui->cbAutoUpdate->isChecked());
   Settings::setValue(Settings::Core::PreventSleep, ui->cbPreventSleep->isChecked());
   Settings::setValue(Settings::Security::Certificate, ui->lineTlsCertPath->text());
   Settings::setValue(Settings::Security::KeySize, ui->comboTlsKeyLength->currentText().toInt());
@@ -271,7 +263,6 @@ void SettingsDialog::loadFromConfig()
   ui->lineLogFilename->setText(Settings::value(Settings::Log::File).toString());
   ui->cbPreventSleep->setChecked(Settings::value(Settings::Core::PreventSleep).toBool());
   ui->cbElevateDaemon->setChecked(Settings::value(Settings::Daemon::Elevate).toBool());
-  ui->cbAutoUpdate->setChecked(Settings::value(Settings::Gui::AutoUpdateCheck).toBool());
   ui->cbGuiDebug->setChecked(Settings::value(Settings::Log::GuiDebug).toBool());
   ui->cbShowVersion->setChecked(Settings::value(Settings::Gui::ShowVersionInTitle).toBool());
   ui->cbRunEnterCommand->setChecked(Settings::value(Settings::Core::EnableEnterCommand).toBool());
@@ -313,70 +304,11 @@ void SettingsDialog::loadFromConfig()
   qDebug() << "load from config done";
 
   updateControls();
-  ui->lineUpdateToken->clear();
-  updateTokenControls();
-}
-
-void SettingsDialog::updateTokenControls()
-{
-  using deskflow::gui::updates::UpdateTokenStore;
-  const bool supported = UpdateTokenStore::isSupported();
-  const bool hasToken = supported && UpdateTokenStore::hasToken();
-
-  ui->lineUpdateToken->setEnabled(supported);
-  ui->btnForgetUpdateToken->setEnabled(hasToken);
-  ui->btnCheckUpdates->setEnabled(supported);
-
-  const auto tokenHint = tr("A fine-grained GitHub token with read-only Contents access to the release repository.");
-  if (supported)
-    ui->lineUpdateToken->setToolTip(tokenHint + QLatin1Char(' ') + tr("It is stored in the %1.").arg(UpdateTokenStore::storeName()));
-  else
-    ui->lineUpdateToken->setToolTip(tokenHint);
-
-  if (!supported)
-    ui->lineUpdateToken->setPlaceholderText(tr("Only available on macOS and Windows"));
-  else if (hasToken)
-    ui->lineUpdateToken->setPlaceholderText(tr("Saved in the %1").arg(UpdateTokenStore::storeName()));
-  else
-    ui->lineUpdateToken->setPlaceholderText(tr("Paste a token to check for updates"));
-}
-
-bool SettingsDialog::saveUpdateToken()
-{
-  using namespace deskflow::gui::updates;
-  const auto token = ui->lineUpdateToken->text().trimmed();
-  if (token.isEmpty())
-    return true;
-
-  if (!isPlausibleToken(token)) {
-    QMessageBox::warning(this, tr("GitHub token"), tr("The GitHub token contains spaces or unsupported characters."));
-    return false;
-  }
-
-  if (!UpdateTokenStore::saveToken(token)) {
-    QMessageBox::warning(
-        this, tr("GitHub token"),
-        tr("Could not save the GitHub token to the %1.").arg(UpdateTokenStore::storeName())
-    );
-    return false;
-  }
-
-  ui->lineUpdateToken->clear();
-  updateTokenControls();
-  return true;
-}
-
-void SettingsDialog::forgetUpdateToken()
-{
-  deskflow::gui::updates::UpdateTokenStore::removeToken();
-  ui->lineUpdateToken->clear();
-  updateTokenControls();
 }
 
 void SettingsDialog::checkUpdatesNow()
 {
-  if (saveUpdateToken())
-    Q_EMIT requestUpdateCheck();
+  Q_EMIT requestUpdateCheck();
 }
 
 void SettingsDialog::updateTlsControls()
@@ -452,7 +384,6 @@ void SettingsDialog::updateControls()
   ui->rbAutoHide->setEnabled(writable);
   ui->rbShowOnStart->setEnabled(writable);
   ui->btnClearAllSettings->setEnabled(writable);
-  ui->cbAutoUpdate->setEnabled(writable);
   ui->cbPreventSleep->setEnabled(writable);
   ui->lineTlsCertPath->setEnabled(writable);
   ui->comboTlsKeyLength->setEnabled(writable);
@@ -503,7 +434,6 @@ bool SettingsDialog::isModified() const
       (ui->cbPreventSleep->isChecked() != Settings::value(Settings::Core::PreventSleep).toBool()) ||
       (ui->rbCloseToTray->isChecked() != Settings::value(Settings::Gui::CloseToTray).toBool()) ||
       (ui->cbElevateDaemon->isChecked() != Settings::value(Settings::Daemon::Elevate).toBool()) ||
-      (ui->cbAutoUpdate->isChecked() != Settings::value(Settings::Gui::AutoUpdateCheck).toBool()) ||
       (ui->cbGuiDebug->isChecked() != Settings::value(Settings::Log::GuiDebug).toBool()) ||
       (ui->cbShowVersion->isChecked() != Settings::value(Settings::Gui::ShowVersionInTitle).toBool()) ||
       (ui->rbIconMono->isChecked() != Settings::value(Settings::Gui::SymbolicTrayIcon).toBool()) ||
@@ -516,7 +446,6 @@ bool SettingsDialog::isModified() const
       (ui->cbRunExitCommand->isChecked() != Settings::value(Settings::Core::EnableExitCommand).toBool()) ||
       (ui->lineCommandEnter->text() != Settings::value(Settings::Core::ComputerEnterCommand).toString()) ||
       (ui->lineCommandExit->text() != Settings::value(Settings::Core::ComputerExitCommand).toString()) ||
-      !ui->lineUpdateToken->text().isEmpty() ||
       (I18N::nativeTo639Name(ui->comboLanguage->currentText()) != Settings::value(Settings::Core::Language).toString());
 
   if (!ignoreInterface)
@@ -539,7 +468,6 @@ bool SettingsDialog::isDefault() const
       (ui->cbPreventSleep->isChecked() == Settings::defaultValue(Settings::Core::PreventSleep).toBool()) &&
       (ui->rbCloseToTray->isChecked() == Settings::defaultValue(Settings::Gui::CloseToTray).toBool()) &&
       (ui->cbElevateDaemon->isChecked() == Settings::defaultValue(Settings::Daemon::Elevate).toBool()) &&
-      (ui->cbAutoUpdate->isChecked() == Settings::defaultValue(Settings::Gui::AutoUpdateCheck).toBool()) &&
       (ui->cbGuiDebug->isChecked() == Settings::defaultValue(Settings::Log::GuiDebug).toBool()) &&
       (ui->cbShowVersion->isChecked() == Settings::defaultValue(Settings::Gui::ShowVersionInTitle).toBool()) &&
       (ui->rbIconMono->isChecked() == Settings::defaultValue(Settings::Gui::SymbolicTrayIcon).toBool()) &&
@@ -567,7 +495,6 @@ void SettingsDialog::resetToDefault()
   ui->lineLogFilename->setText(Settings::defaultValue(Settings::Log::File).toString());
   ui->cbPreventSleep->setChecked(Settings::defaultValue(Settings::Core::PreventSleep).toBool());
   ui->cbElevateDaemon->setChecked(Settings::defaultValue(Settings::Daemon::Elevate).toBool());
-  ui->cbAutoUpdate->setChecked(Settings::defaultValue(Settings::Gui::AutoUpdateCheck).toBool());
   ui->cbGuiDebug->setChecked(Settings::defaultValue(Settings::Log::GuiDebug).toBool());
   ui->cbShowVersion->setChecked(Settings::defaultValue(Settings::Gui::ShowVersionInTitle).toBool());
   ui->cbRunEnterCommand->setChecked(Settings::defaultValue(Settings::Core::EnableEnterCommand).toBool());

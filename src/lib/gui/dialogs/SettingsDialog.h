@@ -61,12 +61,6 @@ private:
   /// @brief update if the log level warning is shown
   void logLevelChanged();
 
-  /// @brief Shows whether an update token is stored in the Keychain.
-  void updateTokenControls();
-  /// @brief Saves the token typed in the token field to the Keychain, if any.
-  /// @return false when the token was not valid or could not be saved.
-  bool saveUpdateToken();
-  void forgetUpdateToken();
   void checkUpdatesNow();
 
   /**

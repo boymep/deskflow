@@ -77,8 +77,8 @@ add_library(${target} STATIC
   updates/GitHubUpdater.h
   updates/UpdateFlow.cpp
   updates/UpdateFlow.h
-  updates/UpdateTokenStore.cpp
-  updates/UpdateTokenStore.h
+  updates/UpdateInstaller.cpp
+  updates/UpdateInstaller.h
   updates/UpdateUtils.cpp
   updates/UpdateUtils.h
   validators/AliasValidator.cpp
@@ -130,9 +130,3 @@ target_link_libraries(${target}
     net
     Qt6::Widgets
 )
-
-if(APPLE)
-  # Keychain storage of the update token
-  find_library(lib_Security Security)
-  target_link_libraries(${target} PRIVATE ${lib_Security})
-endif()

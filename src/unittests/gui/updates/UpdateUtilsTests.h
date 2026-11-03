@@ -18,5 +18,11 @@ private Q_SLOTS:
   void parseRelease_invalid();
   void assetUrl();
   void redirectUrl();
-  void token();
+  void bundlePath();
+  void adhocSignature();
+  void designatedRequirement();
+  void macInstallScript();
+  void powerShellQuote();
+  void windowsInstallScript();
+  void powerShellEncodedCommand();
 };

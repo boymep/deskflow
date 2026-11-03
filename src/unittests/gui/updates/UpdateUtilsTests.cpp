@@ -8,6 +8,10 @@
 
 #include "gui/updates/UpdateUtils.h"
 
+#include <QFile>
+#include <QProcess>
+#include <QTemporaryDir>
+
 using namespace deskflow::gui::updates;
 
 namespace {
@@ -176,14 +180,107 @@ void UpdateUtilsTests::redirectUrl()
   QVERIFY(!isAllowedRedirectUrl(QUrl()));
 }
 
-void UpdateUtilsTests::token()
+void UpdateUtilsTests::bundlePath()
 {
-  QVERIFY(isPlausibleToken(QStringLiteral("github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")));
-  QVERIFY(!isPlausibleToken(QString()));
-  QVERIFY(!isPlausibleToken(QStringLiteral("abc def")));
-  QVERIFY(!isPlausibleToken(QStringLiteral("abc\r\nX-Evil: 1")));
-  QVERIFY(!isPlausibleToken(QStringLiteral("töken")));
-  QVERIFY(!isPlausibleToken(QString(kMaxTokenLength + 1, QLatin1Char('a'))));
+  QCOMPARE(
+      bundlePathFromAppDir(QStringLiteral("/Applications/Deskflow.app/Contents/MacOS")),
+      QStringLiteral("/Applications/Deskflow.app")
+  );
+  QCOMPARE(
+      bundlePathFromAppDir(QStringLiteral("/Users/me/My Apps/Deskflow 2.app/Contents/MacOS/")),
+      QStringLiteral("/Users/me/My Apps/Deskflow 2.app")
+  );
+  QCOMPARE(bundlePathFromAppDir(QStringLiteral("/usr/local/bin")), QString());
+  QCOMPARE(bundlePathFromAppDir(QStringLiteral("/Applications/Deskflow/Contents/MacOS")), QString());
+  QCOMPARE(bundlePathFromAppDir(QStringLiteral("/Applications/Deskflow.app/Contents")), QString());
+  QCOMPARE(bundlePathFromAppDir(QStringLiteral("/.app/Contents/MacOS")), QString());
+  QCOMPARE(bundlePathFromAppDir(QString()), QString());
+}
+
+void UpdateUtilsTests::adhocSignature()
+{
+  QVERIFY(isAdhocSignature(QStringLiteral("Identifier=Deskflow\nSignature=adhoc\nTeamIdentifier=not set\n")));
+  QVERIFY(isAdhocSignature(QStringLiteral("Identifier=Deskflow\nTeamIdentifier=not set\n")));
+  QVERIFY(isAdhocSignature(QString()));
+  QVERIFY(!isAdhocSignature(
+      QStringLiteral("Identifier=org.deskflow.deskflow\nSignature size=1234\nAuthority=Deskflow Self-Signed\n")
+  ));
+}
+
+void UpdateUtilsTests::designatedRequirement()
+{
+  QCOMPARE(
+      deskflow::gui::updates::designatedRequirement(QStringLiteral(
+          "Executable=/Applications/Deskflow.app/Contents/MacOS/Deskflow\n"
+          "designated => identifier \"org.deskflow.deskflow\" and certificate root = H\"0123abcd\"\n"
+      )),
+      QStringLiteral("identifier \"org.deskflow.deskflow\" and certificate root = H\"0123abcd\"")
+  );
+  // ad-hoc: only an implicit requirement as a comment
+  QCOMPARE(
+      deskflow::gui::updates::designatedRequirement(
+          QStringLiteral("Executable=/x\n# designated => cdhash H\"c3fa\"\n")
+      ),
+      QString()
+  );
+  QCOMPARE(deskflow::gui::updates::designatedRequirement(QString()), QString());
+}
+
+void UpdateUtilsTests::macInstallScript()
+{
+  const auto script = deskflow::gui::updates::macInstallScript();
+  QVERIFY(script.startsWith(QStringLiteral("#!/bin/sh\n")));
+  QVERIFY(script.contains(QStringLiteral("xattr -dr com.apple.quarantine \"$target\"")));
+  QVERIFY(script.contains(QStringLiteral("/bin/mv \"$backup\" \"$target\"")));
+
+#if defined(Q_OS_UNIX)
+  // the script must at least parse
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  QFile file(dir.filePath(QStringLiteral("install.sh")));
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write(script.toUtf8());
+  file.close();
+  QProcess sh;
+  sh.start(QStringLiteral("/bin/sh"), {QStringLiteral("-n"), file.fileName()});
+  QVERIFY(sh.waitForFinished());
+  QCOMPARE(sh.exitStatus(), QProcess::NormalExit);
+  QCOMPARE(sh.exitCode(), 0);
+#endif
+}
+
+void UpdateUtilsTests::powerShellQuote()
+{
+  QCOMPARE(
+      deskflow::gui::updates::powerShellQuote(QStringLiteral("C:\\a b\\x.exe")), QStringLiteral("'C:\\a b\\x.exe'")
+  );
+  QCOMPARE(deskflow::gui::updates::powerShellQuote(QStringLiteral("it's")), QStringLiteral("'it''s'"));
+  QCOMPARE(deskflow::gui::updates::powerShellQuote(QString()), QStringLiteral("''"));
+}
+
+void UpdateUtilsTests::windowsInstallScript()
+{
+  const auto script = deskflow::gui::updates::windowsInstallScript(
+      QStringLiteral("C:\\Users\\O'Neil\\Temp\\d-1\\Deskflow-1.2.3.4.msi"),
+      QStringLiteral("C:\\Program Files\\Deskflow\\deskflow.exe"), QStringLiteral("C:\\Users\\O'Neil\\Temp\\d-1"), 4242
+  );
+  QVERIFY(script.contains(QStringLiteral("Wait-Process -Id 4242 -Timeout 30\n")));
+  QVERIFY(script.contains(
+      QStringLiteral("-ArgumentList '/i \"C:\\Users\\O''Neil\\Temp\\d-1\\Deskflow-1.2.3.4.msi\" /passive /norestart' "
+                     "-Verb RunAs -Wait")
+  ));
+  QVERIFY(script.contains(QStringLiteral("Start-Process -FilePath 'C:\\Program Files\\Deskflow\\deskflow.exe'\n")));
+  QVERIFY(script.contains(QStringLiteral("Remove-Item -LiteralPath 'C:\\Users\\O''Neil\\Temp\\d-1' -Recurse")));
+}
+
+void UpdateUtilsTests::powerShellEncodedCommand()
+{
+  // base64 of "dir" in UTF-16LE, as in the powershell -EncodedCommand documentation
+  QCOMPARE(deskflow::gui::updates::powerShellEncodedCommand(QStringLiteral("dir")), QByteArrayLiteral("ZABpAHIA"));
+  QCOMPARE(
+      QByteArray::fromBase64(deskflow::gui::updates::powerShellEncodedCommand(QStringLiteral("\u044f"))),
+      QByteArray("\x4f\x04", 2)
+  );
 }
 
 QTEST_MAIN(UpdateUtilsTests)

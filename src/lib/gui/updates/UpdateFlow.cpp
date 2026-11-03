@@ -7,22 +7,22 @@
 #include "UpdateFlow.h"
 
 #include "GitHubUpdater.h"
-#include "UpdateTokenStore.h"
+#include "UpdateInstaller.h"
 #include "common/Constants.h"
 #include "common/VersionInfo.h"
 
 #include <QApplication>
-#include <QDir>
-#include <QFileInfo>
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QPushButton>
+#include <QTimer>
+
+#include <chrono>
 
 namespace deskflow::gui::updates {
 
 UpdateFlow::UpdateFlow(QWidget *parent) : QObject(parent), m_parent{parent}, m_updater{new GitHubUpdater(this)}
 {
-  connect(m_updater, &GitHubUpdater::noToken, this, &UpdateFlow::handleNoToken);
   connect(m_updater, &GitHubUpdater::checkFailed, this, &UpdateFlow::handleCheckFailed);
   connect(m_updater, &GitHubUpdater::upToDate, this, &UpdateFlow::handleUpToDate);
   connect(m_updater, &GitHubUpdater::updateAvailable, this, &UpdateFlow::handleUpdateAvailable);
@@ -30,10 +30,16 @@ UpdateFlow::UpdateFlow(QWidget *parent) : QObject(parent), m_parent{parent}, m_u
   connect(m_updater, &GitHubUpdater::unpacking, this, &UpdateFlow::handleUnpacking);
   connect(m_updater, &GitHubUpdater::downloadFinished, this, &UpdateFlow::handleDownloadFinished);
   connect(m_updater, &GitHubUpdater::downloadFailed, this, &UpdateFlow::handleDownloadFailed);
+
+  constexpr auto kRecheckInterval = std::chrono::hours(6);
+  m_recheckTimer.setInterval(kRecheckInterval);
+  connect(&m_recheckTimer, &QTimer::timeout, this, &UpdateFlow::checkOnStartup);
 }
 
 void UpdateFlow::checkOnStartup()
 {
+  if (!m_recheckTimer.isActive())
+    m_recheckTimer.start();
   if (m_updater->isBusy())
     return;
   m_interactive = false;
@@ -65,15 +71,27 @@ void UpdateFlow::offerDownload()
   message.setWindowTitle(tr("Update available"));
   message.setIcon(QMessageBox::Information);
   message.setText(tr("%1 %2 is available. You have %3.").arg(kAppName, version, kVersion));
-  message.setInformativeText(tr("Download it to your Downloads folder? You install it yourself after the download."));
-  const auto download = message.addButton(tr("Download"), QMessageBox::AcceptRole);
+  message.setInformativeText(tr("Download and install it now? %1 will restart.").arg(kAppName));
+  const auto download = message.addButton(tr("Install"), QMessageBox::AcceptRole);
   message.addButton(tr("Later"), QMessageBox::RejectRole);
   message.setDefaultButton(download);
   message.exec();
   if (message.clickedButton() != download)
     return;
 
+  startDownload(version, true);
+}
+
+void UpdateFlow::startDownload(const QString &version, bool showProgress)
+{
   m_cancelled = false;
+  m_silentDownload = !showProgress;
+  if (!showProgress) {
+    qInfo("downloading update %s", qPrintable(version));
+    m_updater->downloadLatest();
+    return;
+  }
+
   m_progress = new QProgressDialog(
       tr("Downloading %1 %2...").arg(kAppName, version), tr("Cancel"), 0, 0, dialogParent()
   );
@@ -91,30 +109,12 @@ void UpdateFlow::offerDownload()
   m_updater->downloadLatest();
 }
 
-void UpdateFlow::handleNoToken()
-{
-  closeProgress();
-  if (!m_interactive)
-    return;
-
-  if (!UpdateTokenStore::isSupported()) {
-    QMessageBox::information(dialogParent(), tr("Updates"), tr("Checking for updates is only available on macOS and Windows."));
-    return;
-  }
-
-  QMessageBox::information(
-      dialogParent(), tr("Updates"),
-      tr("<p>To check for updates, add a GitHub token in Settings.</p>"
-         "<p>Create a fine-grained token with read-only <b>Contents</b> access to the %1/%2 repository. "
-         "It is stored in the %3.</p>")
-          .arg(kRepoOwner, kRepoName, UpdateTokenStore::storeName())
-  );
-}
-
 void UpdateFlow::handleCheckFailed(const QString &message)
 {
-  if (!m_interactive)
+  if (!m_interactive) {
+    qWarning("update check failed: %s", qPrintable(message));
     return;
+  }
   QMessageBox::warning(dialogParent(), tr("Updates"), tr("Could not check for updates.\n\n%1").arg(message));
 }
 
@@ -131,8 +131,15 @@ void UpdateFlow::handleUpToDate(const QString &version)
 void UpdateFlow::handleUpdateAvailable(const QString &version)
 {
   Q_EMIT updateFound(version);
-  if (m_interactive)
+  if (m_interactive) {
     offerDownload();
+    return;
+  }
+  if (m_downloaded || m_updater->isBusy()) {
+    qDebug("update %s: already downloaded or busy, not downloading again", qPrintable(version));
+    return;
+  }
+  startDownload(version, false);
 }
 
 void UpdateFlow::handleProgress(qint64 received, qint64 total)
@@ -153,34 +160,50 @@ void UpdateFlow::handleUnpacking()
   m_progress->setRange(0, 0);
 }
 
-void UpdateFlow::handleDownloadFinished(const QString &appPath)
+void UpdateFlow::handleDownloadFinished(const QString &updatePath)
 {
   closeProgress();
-  const QFileInfo info(appPath);
+  if (m_downloaded) {
+    qDebug("update already installed in this session, ignoring: %s", qPrintable(updatePath));
+    return;
+  }
+  m_downloaded = true;
+
+  if (!startInstall(updatePath, m_updater->workDir())) {
+    // the reason is logged by startInstall, the user installs by hand
+    revealInFileManager(updatePath);
+    if (m_silentDownload)
+      return;
 #if defined(Q_OS_WIN)
-  QMessageBox::information(
-      dialogParent(), tr("Update downloaded"),
-      tr("<p>The new version is ready in <b>%1</b> and is shown in Explorer.</p>"
-         "<p>To install it:</p>"
-         "<ol><li>Quit %2.</li>"
-         "<li>Run <b>%3</b> and follow the installer.</li>"
-         "<li>Start %2 again.</li></ol>")
-          .arg(
-              QDir::toNativeSeparators(info.absolutePath()).toHtmlEscaped(), kAppName, info.fileName().toHtmlEscaped()
-          )
-  );
+    const auto fileManager = QStringLiteral("Explorer");
 #else
-  QMessageBox::information(
-      dialogParent(), tr("Update downloaded"),
-      tr("<p>The new version is ready in <b>%1</b> and is shown in Finder.</p>"
-         "<p>To install it:</p>"
-         "<ol><li>Quit %2.</li>"
-         "<li>Drag %3 from the Finder window to the Applications folder.</li>"
-         "<li>Choose <b>Replace</b> when asked.</li>"
-         "<li>Open %2 from Applications.</li></ol>")
-          .arg(info.absolutePath().toHtmlEscaped(), kAppName, info.fileName().toHtmlEscaped())
-  );
+    const auto fileManager = QStringLiteral("Finder");
 #endif
+    QMessageBox::warning(
+        dialogParent(), tr("Update"),
+        tr("The update was downloaded but could not be installed automatically. "
+           "It is shown in %1, install it by hand.")
+            .arg(fileManager)
+    );
+    return;
+  }
+
+  if (m_silentDownload) {
+    // let the signal handlers return before the window closes
+    QTimer::singleShot(0, this, &UpdateFlow::restartRequested);
+    return;
+  }
+
+  // short notice without buttons; it goes away with the app
+  auto notice = new QMessageBox(
+      QMessageBox::Information, tr("Update"), tr("Installing the update. %1 will restart.").arg(kAppName),
+      QMessageBox::NoButton, dialogParent()
+  );
+  notice->setAttribute(Qt::WA_DeleteOnClose);
+  notice->setModal(false);
+  notice->show();
+  constexpr auto kNoticeDelay = std::chrono::milliseconds(1500);
+  QTimer::singleShot(kNoticeDelay, this, &UpdateFlow::restartRequested);
 }
 
 void UpdateFlow::handleDownloadFailed(const QString &message)
@@ -188,6 +211,10 @@ void UpdateFlow::handleDownloadFailed(const QString &message)
   closeProgress();
   if (m_cancelled) {
     m_cancelled = false;
+    return;
+  }
+  if (m_silentDownload) {
+    qWarning("automatic update download failed: %s", qPrintable(message));
     return;
   }
   QMessageBox::warning(dialogParent(), tr("Update"), tr("The update could not be downloaded.\n\n%1").arg(message));

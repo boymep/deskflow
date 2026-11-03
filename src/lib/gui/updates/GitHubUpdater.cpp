@@ -6,7 +6,6 @@
 
 #include "GitHubUpdater.h"
 
-#include "UpdateTokenStore.h"
 #include "common/Constants.h"
 #include "common/VersionInfo.h"
 
@@ -17,6 +16,7 @@
 #include <QNetworkRequest>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTimer>
 
 namespace deskflow::gui::updates {
@@ -25,7 +25,6 @@ namespace {
 
 constexpr int kTransferTimeoutMs = 30 * 1000;
 constexpr int kUnpackTimeoutMs = 5 * 60 * 1000;
-constexpr int kMaxUniqueNames = 100;
 #if defined(Q_OS_WIN)
 const auto kFileSuffix = QStringLiteral(".msi");
 #else
@@ -37,17 +36,6 @@ const auto kAcceptBinary = QByteArrayLiteral("application/octet-stream");
 bool isRedirectStatus(int status)
 {
   return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
-}
-
-/// Returns "<base><suffix>" or "<base>-N<suffix>" for the first name that does not exist yet.
-QString uniquePath(const QString &base, const QString &suffix)
-{
-  for (int i = 1; i <= kMaxUniqueNames; ++i) {
-    const auto path = i == 1 ? base + suffix : QStringLiteral("%1-%2%3").arg(base, QString::number(i), suffix);
-    if (!QFileInfo::exists(path))
-      return path;
-  }
-  return {};
 }
 
 } // namespace
@@ -84,24 +72,21 @@ QString GitHubUpdater::latestVersion() const
   return m_release ? m_release->version : QString();
 }
 
+QString GitHubUpdater::workDir() const
+{
+  return m_workDir;
+}
+
 void GitHubUpdater::checkLatest()
 {
   if (isBusy())
     return;
 
-  m_token = UpdateTokenStore::readToken();
-  if (!isPlausibleToken(m_token)) {
-    m_token.clear();
-    qDebug("no update token in the keychain, skipping the update check");
-    Q_EMIT noToken();
-    return;
-  }
-
   qDebug("checking for updates at: %s", qPrintable(kUrlLatestRelease));
   m_release.reset();
   m_redirects = 0;
   m_phase = Phase::Checking;
-  fetch(QUrl(kUrlLatestRelease), true, kAcceptJson, kMaxJsonSize);
+  fetch(QUrl(kUrlLatestRelease), kAcceptJson, kMaxJsonSize);
 }
 
 void GitHubUpdater::downloadLatest()
@@ -109,16 +94,9 @@ void GitHubUpdater::downloadLatest()
   if (isBusy() || !m_release)
     return;
 
-  m_token = UpdateTokenStore::readToken();
-  if (!isPlausibleToken(m_token)) {
-    m_token.clear();
-    Q_EMIT noToken();
-    return;
-  }
-
   m_redirects = 0;
   m_phase = Phase::FetchingSha;
-  fetch(m_release->sha.url, true, kAcceptBinary, kMaxShaFileSize);
+  fetch(m_release->sha.url, kAcceptBinary, kMaxShaFileSize);
 }
 
 void GitHubUpdater::cancel()
@@ -132,7 +110,7 @@ void GitHubUpdater::cancel()
   }
 }
 
-void GitHubUpdater::fetch(const QUrl &url, bool withToken, const QByteArray &accept, qint64 maxSize)
+void GitHubUpdater::fetch(const QUrl &url, const QByteArray &accept, qint64 maxSize)
 {
   resetTransfer();
   m_accept = accept;
@@ -147,11 +125,9 @@ void GitHubUpdater::fetch(const QUrl &url, bool withToken, const QByteArray &acc
   request.setTransferTimeout(kTransferTimeoutMs);
   request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("%1/%2").arg(kAppName, kVersion));
   request.setRawHeader("Accept", accept);
-  if (withToken) {
-    // only ever used for the hard coded api.github.com URLs
-    request.setRawHeader("Authorization", QByteArrayLiteral("Bearer ") + m_token.toLatin1());
+  // only for the api.github.com URLs, not for the redirected asset hosts
+  if (url.host() == QStringLiteral("api.github.com"))
     request.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
-  }
 
   m_reply = m_network->get(request);
   connect(m_reply, &QNetworkReply::metaDataChanged, this, &GitHubUpdater::handleMetaData);
@@ -279,9 +255,8 @@ void GitHubUpdater::handleRedirect()
     return;
   }
 
-  // the signed URL carries its own authorization, the token must not leave api.github.com
   qDebug("following update download redirect to host: %s", qPrintable(target.host()));
-  fetch(target, false, m_accept, m_maxSize);
+  fetch(target, m_accept, m_maxSize);
 }
 
 void GitHubUpdater::handleBody()
@@ -292,7 +267,6 @@ void GitHubUpdater::handleBody()
     QString error;
     m_release = parseRelease(m_buffer, &error);
     m_buffer.clear();
-    m_token.clear();
     m_phase = Phase::Idle;
     if (!m_release) {
       qWarning("invalid release data from github: %s", qPrintable(error));
@@ -328,19 +302,19 @@ void GitHubUpdater::handleBody()
 
 void GitHubUpdater::startZipDownload()
 {
-  const auto downloads = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-  if (downloads.isEmpty() || !QDir().mkpath(downloads)) {
-    fail(tr("Could not find the Downloads folder."));
+  // a fresh folder per download; it is kept for the install helper, which removes it
+  const auto temp = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+  QTemporaryDir workDir(QDir(temp).filePath(QStringLiteral("deskflow-update-XXXXXX")));
+  if (!workDir.isValid()) {
+    fail(tr("Could not create a temporary folder for the update."));
     return;
   }
+  workDir.setAutoRemove(false);
+  m_workDir = workDir.path();
 
-  const auto base = QDir(downloads).filePath(QStringLiteral("Deskflow-%1").arg(m_release->version));
-  m_zipPath = uniquePath(base, kFileSuffix);
-  const auto partPath = uniquePath(base, kFileSuffix + QStringLiteral(".download"));
-  if (m_zipPath.isEmpty() || partPath.isEmpty()) {
-    fail(tr("Could not choose a file name in the Downloads folder."));
-    return;
-  }
+  const auto base = QDir(m_workDir).filePath(QStringLiteral("Deskflow-%1").arg(m_release->version));
+  m_zipPath = base + kFileSuffix;
+  const auto partPath = base + kFileSuffix + QStringLiteral(".download");
 
   m_file.setFileName(partPath);
   if (!m_file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
@@ -350,12 +324,11 @@ void GitHubUpdater::startZipDownload()
 
   qInfo("downloading update %s to: %s", qPrintable(m_release->version), qPrintable(partPath));
   m_phase = Phase::FetchingZip;
-  fetch(m_release->zip.url, true, kAcceptBinary, kMaxZipSize);
+  fetch(m_release->zip.url, kAcceptBinary, kMaxZipSize);
 }
 
 void GitHubUpdater::verifyZip()
 {
-  m_token.clear();
   m_file.close();
 
   const auto actual = m_hash.result().toHex();
@@ -382,10 +355,10 @@ void GitHubUpdater::verifyZip()
 void GitHubUpdater::unpack(const QString &zipPath)
 {
 #if defined(Q_OS_MACOS)
-  const auto downloads = QFileInfo(zipPath).absolutePath();
-  m_unpackDir = uniquePath(QDir(downloads).filePath(QStringLiteral("Deskflow-%1").arg(m_release->version)), {});
-  if (m_unpackDir.isEmpty() || !QDir().mkdir(m_unpackDir)) {
-    fail(tr("Could not create a folder for the update in %1.").arg(downloads));
+  const auto workDir = QFileInfo(zipPath).absolutePath();
+  m_unpackDir = QDir(workDir).filePath(QStringLiteral("unpacked"));
+  if (!QDir().mkdir(m_unpackDir)) {
+    fail(tr("Could not create a folder for the update in %1.").arg(workDir));
     return;
   }
 
@@ -410,14 +383,7 @@ void GitHubUpdater::unpack(const QString &zipPath)
   const QStringList arguments = {QStringLiteral("-x"), QStringLiteral("-k"), zipPath, m_unpackDir};
   m_process->start(QStringLiteral("/usr/bin/ditto"), arguments);
 #else
-#if defined(Q_OS_WIN)
-  // Nothing to unpack. Show the verified installer in Explorer; the user runs it.
-  // Absolute path from SystemRoot and an argument list, no shell.
-  const auto systemRoot = qEnvironmentVariable("SystemRoot", QStringLiteral("C:\\Windows"));
-  const auto explorer = QDir::toNativeSeparators(QDir(systemRoot).filePath(QStringLiteral("explorer.exe")));
-  const auto native = QDir::toNativeSeparators(QFileInfo(zipPath).absoluteFilePath());
-  QProcess::startDetached(explorer, {QStringLiteral("/select,") + native});
-#endif
+  // nothing to unpack, the verified msi is installed as it is
   m_phase = Phase::Idle;
   Q_EMIT downloadFinished(zipPath);
 #endif
@@ -447,9 +413,6 @@ void GitHubUpdater::finishUnpack(int exitCode)
 
   const auto appPath = app.absoluteFilePath();
   qInfo("update unpacked to: %s", qPrintable(appPath));
-#if defined(Q_OS_MACOS)
-  QProcess::startDetached(QStringLiteral("/usr/bin/open"), {QStringLiteral("-R"), appPath});
-#endif
   m_phase = Phase::Idle;
   Q_EMIT downloadFinished(appPath);
 }
@@ -458,7 +421,6 @@ void GitHubUpdater::fail(const QString &message)
 {
   const auto phase = m_phase;
   m_phase = Phase::Idle;
-  m_token.clear();
   m_buffer.clear();
   m_redirects = 0;
   if (m_file.isOpen()) {
@@ -475,10 +437,9 @@ void GitHubUpdater::fail(const QString &message)
 QString GitHubUpdater::httpErrorMessage(int status) const
 {
   if (status == 401 || status == 403)
-    return tr("GitHub rejected the token (HTTP %1). Check that it is valid and can read %2/%3.")
-        .arg(QString::number(status), kRepoOwner, kRepoName);
+    return tr("GitHub refused the request (HTTP %1). The rate limit may be reached, try again later.").arg(status);
   if (status == 404)
-    return tr("No release was found (HTTP 404). Either nothing is published yet or the token cannot see %1/%2.")
+    return tr("No release was found (HTTP 404). Either nothing is published yet or the repository %1/%2 is not public.")
         .arg(kRepoOwner, kRepoName);
   return tr("GitHub answered with HTTP %1.").arg(status);
 }

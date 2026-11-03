@@ -76,62 +76,6 @@
           <widget class="QComboBox" name="comboLanguage"/>
          </item>
          <item row="1" column="1">
-          <widget class="QCheckBox" name="cbAutoUpdate">
-           <property name="text">
-            <string>Check for updates on startup</string>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="0">
-          <widget class="QLabel" name="lblUpdateToken">
-           <property name="text">
-            <string>GitHub token</string>
-           </property>
-           <property name="buddy">
-            <cstring>lineUpdateToken</cstring>
-           </property>
-          </widget>
-         </item>
-         <item row="2" column="1">
-          <layout class="QHBoxLayout" name="layoutUpdateToken">
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <property name="spacing">
-            <number>8</number>
-           </property>
-           <item>
-            <widget class="QLineEdit" name="lineUpdateToken">
-             <property name="minimumSize">
-              <size>
-               <width>200</width>
-               <height>0</height>
-              </size>
-             </property>
-             <property name="echoMode">
-              <enum>QLineEdit::EchoMode::Password</enum>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btnForgetUpdateToken">
-             <property name="text">
-              <string>Forget</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item row="3" column="1">
           <layout class="QHBoxLayout" name="layoutCheckUpdates">
            <property name="leftMargin">
             <number>0</number>

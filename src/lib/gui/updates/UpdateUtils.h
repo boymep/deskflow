@@ -28,7 +28,6 @@ const auto kAppBundleName = QStringLiteral("Deskflow.app");
 constexpr qint64 kMaxJsonSize = 1024 * 1024;
 constexpr qint64 kMaxShaFileSize = 1024;
 constexpr qint64 kMaxZipSize = 300LL * 1024 * 1024;
-constexpr int kMaxTokenLength = 255;
 constexpr int kMaxRedirects = 5;
 
 /**
@@ -87,13 +86,57 @@ bool isAllowedAssetUrl(const QUrl &url);
 
 /**
  * @brief Checks that a download redirect stays on https and on a GitHub download host
- * (github.com or *.githubusercontent.com). The token is never sent to these hosts.
+ * (github.com or *.githubusercontent.com).
  */
 bool isAllowedRedirectUrl(const QUrl &url);
 
 /**
- * @brief Basic sanity check of a GitHub token before it is stored or sent: printable ASCII, no spaces.
+ * @brief The .app bundle of the running app, derived from QCoreApplication::applicationDirPath(),
+ * which is ".../Deskflow.app/Contents/MacOS" on macOS.
+ * @return the bundle path, or an empty string if the directory is not inside a bundle.
  */
-bool isPlausibleToken(const QString &token);
+QString bundlePathFromAppDir(const QString &appDir);
+
+/**
+ * @brief Checks the output of `codesign -dv` for an ad-hoc signature: "Signature=adhoc" or no
+ * "Authority=" line, which means no real certificate signed the app.
+ */
+bool isAdhocSignature(const QString &codesignInfo);
+
+/**
+ * @brief Takes the designated requirement from the output of `codesign -d -r-`,
+ * the text after "designated => ".
+ * @return the requirement, or an empty string if there is none.
+ */
+QString designatedRequirement(const QString &codesignOutput);
+
+/**
+ * @brief The /bin/sh script that installs a macOS update after the app has quit.
+ *
+ * Arguments: parent pid, new app, target app, work dir, backup path, log file.
+ * It waits for the pid to exit, moves the target to the backup, moves the new app into place
+ * (restoring the backup on failure), removes the quarantine flag, opens the target and
+ * removes the backup and the work dir.
+ */
+QString macInstallScript();
+
+/**
+ * @brief Quotes text as a single quoted PowerShell string: 'text', with ' doubled.
+ */
+QString powerShellQuote(const QString &text);
+
+/**
+ * @brief The PowerShell script that installs a Windows update after the app has quit.
+ *
+ * It waits for the pid to exit, runs msiexec elevated (UAC) in passive mode, starts the app again
+ * and removes the work dir.
+ */
+QString windowsInstallScript(const QString &msiPath, const QString &exePath, const QString &workDir, qint64 pid);
+
+/**
+ * @brief Encodes a script for `powershell -EncodedCommand`: base64 of the UTF-16LE text.
+ * This avoids any command line quoting of the script.
+ */
+QByteArray powerShellEncodedCommand(const QString &script);
 
 } // namespace deskflow::gui::updates
