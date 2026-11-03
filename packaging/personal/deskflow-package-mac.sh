@@ -3,7 +3,7 @@
 # Note: the official `cmake --install` path (deploy/mac/deploy.cmake -> macdeployqt) misses
 # brew's split Qt kegs (QtSvg/QtPdf/QtVirtualKeyboard), so macdeployqt is run manually with -libpath.
 set -eo pipefail
-REPO=/Users/boymep/Projects/deskflow
+REPO="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"   # repo or worktree that holds this script
 BUILD=build.noindex   # .noindex folders are skipped by Spotlight
 DIST=dist.noindex
 LOG_DIR="${LOG_DIR:-$REPO/$BUILD}"

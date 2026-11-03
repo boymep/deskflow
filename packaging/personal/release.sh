@@ -20,7 +20,7 @@
 #   Deskflow-x64.msi.sha256     (.github/workflows/windows-release.yml) when the release is published
 set -euo pipefail
 
-REPO=/Users/boymep/Projects/deskflow
+REPO="${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"   # repo or worktree that holds this script
 BUILD=build.noindex   # .noindex folders are skipped by Spotlight
 DIST=dist.noindex
 GH_REPO=boymep/deskflow
@@ -41,7 +41,6 @@ die() { echo "error: $*" >&2; exit 1; }
 cd "$REPO"
 
 # 1. Clean tree on the release branch, pushed to origin
-[ "$(git rev-parse --abbrev-ref HEAD)" = "$BRANCH" ] || die "not on branch $BRANCH"
 [ -z "$(git status --porcelain)" ] || die "working tree is not clean"
 git fetch --quiet origin "$BRANCH"
 [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")" ] || die "HEAD is not pushed to origin/$BRANCH"
