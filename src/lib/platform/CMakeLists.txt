@@ -119,9 +119,14 @@ elseif(APPLE)
     OSXWindowSwitcherModel.h
     OSXWindowSwitcherPanel.h
     OSXWindowSwitcherPanel.mm
+    OSXWindowSwitcherThumbnails.h
+    OSXWindowSwitcherThumbnails.mm
   )
   # the window switcher is written for ARC; the older Objective-C files use manual retain/release
-  set_source_files_properties(OSXWindowSwitcher.mm OSXWindowSwitcherPanel.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  set_source_files_properties(
+    OSXWindowSwitcher.mm OSXWindowSwitcherPanel.mm OSXWindowSwitcherThumbnails.mm
+    PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+  )
 elseif(UNIX)
   set(PLATFORM_SOURCES
     XDGPortalRegistry.h
@@ -207,6 +212,11 @@ if(UNIX)
   if(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
     target_link_libraries(platform PUBLIC ${COCOA_LIBRARY})
+    # window switcher thumbnails; weak so the client still starts where the framework is missing
+    find_library(SCREENCAPTUREKIT_LIBRARY ScreenCaptureKit)
+    if(SCREENCAPTUREKIT_LIBRARY)
+      target_link_libraries(platform PUBLIC "-weak_framework ScreenCaptureKit")
+    endif()
   else()
     if(${LIBXKBCOMMON_VERSION} VERSION_GREATER_EQUAL "1.10")
       target_compile_definitions(platform PRIVATE HAVE_XKB_KEYMAP_MOD_GET_MASK=1)

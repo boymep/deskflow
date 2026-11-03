@@ -17,12 +17,13 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, strong, nullable) NSImage *icon;
 @property(nonatomic, assign) BOOL minimized;
 @property(nonatomic, assign) BOOL appHidden;
-//! Window preview; not shown yet (reserved for thumbnails).
+//! Window preview, in memory only; drawn when the panel shows thumbnails.
 @property(nonatomic, strong, nullable) NSImage *thumbnail;
 // used by the controller only
 @property(nonatomic, assign) pid_t pid;
 @property(nonatomic, assign) uint32_t windowId; //!< CGWindowID, 0 if unknown
 @property(nonatomic, strong, nullable) id axWindow; //!< AXUIElementRef of the window
+@property(nonatomic, assign) CGRect frame;          //!< Accessibility frame, global points, top-left origin
 @end
 
 //! Borderless, non-activating panel that shows switcher items in a grid.
@@ -33,14 +34,28 @@ so it cannot take focus from the application the user is working in.
 @interface DeskflowSwitcherPanel : NSObject
 @property(nonatomic, readonly) BOOL visible;
 @property(nonatomic, readonly) NSUInteger selection;
+//! Backing scale factor of the screen the panel was last shown on.
+@property(nonatomic, readonly) CGFloat backingScale;
+//! Size, in points, of the thumbnail area of one tile.
++ (NSSize)thumbnailBoxSize;
 //! Shows \p items centered on the screen with the mouse pointer.
-- (void)showItems:(NSArray<DeskflowSwitcherItem *> *)items selection:(NSUInteger)selection;
+/*!
+With \p thumbnails the tiles are larger and draw each item's thumbnail with the
+app icon on top (the icon alone until a thumbnail arrives); without, tiles show
+only the app icon.
+*/
+- (void)showItems:(NSArray<DeskflowSwitcherItem *> *)items
+        selection:(NSUInteger)selection
+       thumbnails:(BOOL)thumbnails;
 - (void)selectIndex:(NSUInteger)index;
+//! Redraws the tile of item \p index (e.g. after its thumbnail changed).
+- (void)refreshItemAtIndex:(NSUInteger)index;
 - (void)hide;
 //! Builds the panel content for \p items without showing it (also used to render previews).
 - (NSView *)buildContentForItems:(NSArray<DeskflowSwitcherItem *> *)items
                        selection:(NSUInteger)selection
-                     screenFrame:(NSRect)screenFrame;
+                     screenFrame:(NSRect)screenFrame
+                      thumbnails:(BOOL)thumbnails;
 @end
 
 NS_ASSUME_NONNULL_END

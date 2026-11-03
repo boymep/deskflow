@@ -8,6 +8,8 @@
 
 #include "platform/OSXWindowSwitcherModel.h"
 
+#include <limits>
+
 using namespace deskflow::osx;
 
 namespace {
@@ -122,3 +124,117 @@ void OSXWindowSwitcherModelTests::stepWraps()
 }
 
 QTEST_MAIN(OSXWindowSwitcherModelTests)
+
+void OSXWindowSwitcherModelTests::thumbnailSizeFits()
+{
+  const SwitcherRect box{0, 0, 200, 124};
+  // wide window: limited by the box width at 2x
+  QCOMPARE(switcherThumbnailSize({0, 0, 1600, 900}, box, 2.0, 400), (SwitcherPixelSize{400, 225}));
+  // tall window: limited by the box height
+  QCOMPARE(switcherThumbnailSize({0, 0, 600, 1200}, box, 2.0, 400), (SwitcherPixelSize{124, 248}));
+  // 1x screen
+  QCOMPARE(switcherThumbnailSize({0, 0, 1600, 900}, box, 1.0, 400), (SwitcherPixelSize{200, 113}));
+  // max pixel width caps a high scale
+  QCOMPARE(switcherThumbnailSize({0, 0, 1600, 900}, box, 3.0, 320), (SwitcherPixelSize{320, 180}));
+  // small window is not upscaled beyond its own pixels
+  QCOMPARE(switcherThumbnailSize({0, 0, 100, 50}, box, 2.0, 400), (SwitcherPixelSize{200, 100}));
+  // extreme aspect still yields at least one pixel
+  QCOMPARE(switcherThumbnailSize({0, 0, 4000, 1}, box, 1.0, 400), (SwitcherPixelSize{200, 1}));
+}
+
+void OSXWindowSwitcherModelTests::thumbnailSizeInvalid()
+{
+  const SwitcherRect box{0, 0, 200, 124};
+  QCOMPARE(switcherThumbnailSize({0, 0, 0, 900}, box, 2.0, 400), SwitcherPixelSize{});
+  QCOMPARE(switcherThumbnailSize({0, 0, 800, 600}, {0, 0, 0, 0}, 2.0, 400), SwitcherPixelSize{});
+  QCOMPARE(switcherThumbnailSize({0, 0, 800, 600}, box, 0.0, 400), SwitcherPixelSize{});
+  QCOMPARE(switcherThumbnailSize({0, 0, 800, 600}, box, 2.0, 0), SwitcherPixelSize{});
+  QCOMPARE(
+      switcherThumbnailSize({0, 0, std::numeric_limits<double>::infinity(), 600}, box, 2.0, 400), SwitcherPixelSize{}
+  );
+}
+
+void OSXWindowSwitcherModelTests::matchById()
+{
+  const std::vector<SwitcherCaptureWindow> windows{
+      {100, 10, "Doc", {0, 0, 800, 600}}, {101, 10, "Doc", {0, 0, 800, 600}}
+  };
+  QCOMPARE(matchSwitcherWindow({101, 10, "", {}}, windows, {}), std::optional<size_t>(1));
+  // a known id never falls back to guessing
+  QVERIFY(!matchSwitcherWindow({555, 10, "Doc", {0, 0, 800, 600}}, windows, {}).has_value());
+}
+
+void OSXWindowSwitcherModelTests::matchByTitleAndFrame()
+{
+  const std::vector<SwitcherCaptureWindow> windows{
+      {100, 10, "Inbox", {0, 25, 800, 600}},
+      {101, 10, "Draft", {40, 60, 500, 400}},
+      {102, 20, "Inbox", {0, 25, 800, 600}}, // other process
+      {103, 10, "Notes", {300, 300, 640, 480}},
+  };
+  // title and frame (frame within 2 points)
+  QCOMPARE(matchSwitcherWindow({0, 10, "Inbox", {1, 24, 801, 599}}, windows, {}), std::optional<size_t>(0));
+  // unique title, frame changed (window moved since)
+  QCOMPARE(matchSwitcherWindow({0, 10, "Draft", {0, 0, 10, 10}}, windows, {}), std::optional<size_t>(1));
+  // no title, unique frame
+  QCOMPARE(matchSwitcherWindow({0, 10, "", {300, 300, 640, 480}}, windows, {}), std::optional<size_t>(3));
+  // other process only
+  QCOMPARE(matchSwitcherWindow({0, 20, "Inbox", {}}, windows, {}), std::optional<size_t>(2));
+  // claimed windows are skipped
+  QVERIFY(!matchSwitcherWindow({0, 10, "Inbox", {0, 25, 800, 600}}, windows, {100}).has_value());
+  // nothing similar
+  QVERIFY(!matchSwitcherWindow({0, 10, "Other", {900, 900, 10, 10}}, windows, {}).has_value());
+  QVERIFY(!matchSwitcherWindow({0, 30, "Inbox", {0, 25, 800, 600}}, windows, {}).has_value());
+}
+
+void OSXWindowSwitcherModelTests::matchAmbiguous()
+{
+  const std::vector<SwitcherCaptureWindow> windows{
+      {100, 10, "Untitled", {0, 0, 800, 600}},
+      {101, 10, "Untitled", {50, 50, 800, 600}},
+      {102, 10, "", {50, 50, 800, 600}},
+  };
+  // same title twice: the frame decides
+  QCOMPARE(matchSwitcherWindow({0, 10, "Untitled", {50, 50, 800, 600}}, windows, {}), std::optional<size_t>(1));
+  // same title twice and no frame: ambiguous
+  QVERIFY(!matchSwitcherWindow({0, 10, "Untitled", {}}, windows, {}).has_value());
+  // no title and two windows with the same frame: ambiguous
+  QVERIFY(!matchSwitcherWindow({0, 10, "", {50, 50, 800, 600}}, windows, {}).has_value());
+  // ... unless one is already taken
+  QCOMPARE(matchSwitcherWindow({0, 10, "", {50, 50, 800, 600}}, windows, {101}), std::optional<size_t>(2));
+}
+
+void OSXWindowSwitcherModelTests::captureOrder()
+{
+  QCOMPARE(switcherCaptureOrder(0, 0, 30), std::vector<size_t>{});
+  QCOMPARE(switcherCaptureOrder(5, 0, 0), std::vector<size_t>{});
+  QCOMPARE(switcherCaptureOrder(4, 1, 30), (std::vector<size_t>{1, 0, 2, 3}));
+  QCOMPARE(switcherCaptureOrder(6, 0, 3), (std::vector<size_t>{0, 1, 2}));
+  // reverse open selects the last item, which is captured first even past the limit
+  QCOMPARE(switcherCaptureOrder(50, 49, 3), (std::vector<size_t>{49, 0, 1}));
+  QCOMPARE(switcherCaptureOrder(3, 9, 30), (std::vector<size_t>{2, 0, 1}));
+}
+
+void OSXWindowSwitcherModelTests::lruBoundedAndRecent()
+{
+  SwitcherLru<SwitcherWindowId, int> lru(2);
+  QVERIFY(lru.find(1) == nullptr);
+  lru.put(1, 10);
+  lru.put(2, 20);
+  QCOMPARE(*lru.find(1), 10); // 1 becomes most recent
+  lru.put(3, 30);             // evicts 2
+  QVERIFY(lru.find(2) == nullptr);
+  QCOMPARE(*lru.find(1), 10);
+  QCOMPARE(*lru.find(3), 30);
+  lru.put(3, 31); // replace
+  QCOMPARE(lru.size(), size_t(2));
+  QCOMPARE(*lru.find(3), 31);
+  lru.erase(3);
+  QCOMPARE(lru.size(), size_t(1));
+  lru.clear();
+  QCOMPARE(lru.size(), size_t(0));
+
+  SwitcherLru<SwitcherWindowId, int> none(0);
+  none.put(1, 1);
+  QCOMPARE(none.size(), size_t(0));
+}

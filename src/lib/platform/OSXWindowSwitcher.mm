@@ -9,6 +9,7 @@
 #import "base/Log.h"
 #import "platform/OSXWindowSwitcherModel.h"
 #import "platform/OSXWindowSwitcherPanel.h"
+#import "platform/OSXWindowSwitcherThumbnails.h"
 
 #import <ApplicationServices/ApplicationServices.h>
 #import <Cocoa/Cocoa.h>
@@ -114,6 +115,7 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
 @implementation DeskflowWindowSwitcherController {
   SwitcherMru _mru;
   DeskflowSwitcherPanel *_panel;
+  DeskflowSwitcherThumbnailer *_thumbnailer;
   NSArray<DeskflowSwitcherItem *> *_items;
   NSUInteger _selection;
   BOOL _open;
@@ -126,6 +128,7 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
 {
   if ((self = [super init])) {
     _panel = [DeskflowSwitcherPanel new];
+    _thumbnailer = [DeskflowSwitcherThumbnailer new];
     _items = @[];
     _observers = [NSMutableArray array];
     [self startObserving];
@@ -258,7 +261,8 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
       AXUIElementSetMessagingTimeout(element, kAxTimeoutSeconds);
       NSArray *attributes = @[
         (__bridge NSString *)kAXRoleAttribute, (__bridge NSString *)kAXSubroleAttribute,
-        (__bridge NSString *)kAXTitleAttribute, (__bridge NSString *)kAXMinimizedAttribute
+        (__bridge NSString *)kAXTitleAttribute, (__bridge NSString *)kAXMinimizedAttribute,
+        (__bridge NSString *)kAXPositionAttribute, (__bridge NSString *)kAXSizeAttribute
       ];
       CFArrayRef rawValues = nullptr;
       if (AXUIElementCopyMultipleAttributeValues(element, (__bridge CFArrayRef)attributes, 0, &rawValues) !=
@@ -275,6 +279,19 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
       NSString *subrole = stringAt(1);
       NSString *title = stringAt(2) ?: @"";
       id minimized = values.count > 3 ? values[3] : nil;
+      CGPoint position = CGPointZero;
+      CGSize size = CGSizeZero;
+      if (values.count > 5) {
+        // used to match the window for a thumbnail when its window id is unknown
+        id positionValue = values[4];
+        id sizeValue = values[5];
+        if (CFGetTypeID((__bridge CFTypeRef)positionValue) == AXValueGetTypeID()) {
+          AXValueGetValue((__bridge AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+        }
+        if (CFGetTypeID((__bridge CFTypeRef)sizeValue) == AXValueGetTypeID()) {
+          AXValueGetValue((__bridge AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+        }
+      }
       if (!isSwitchableWindow(role, subrole, title)) {
         continue;
       }
@@ -288,6 +305,7 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
       item.pid = app.processIdentifier;
       item.windowId = windowIdOf(element);
       item.axWindow = window;
+      item.frame = CGRectMake(position.x, position.y, size.width, size.height);
       [items addObject:item];
       ++index;
     }
@@ -344,11 +362,26 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
 
   _open = YES;
   _selection = deskflow::osx::switcherInitialSelection(_items.count, reverse);
-  [_panel showItems:_items selection:_selection];
+  // thumbnails only with the Screen Recording permission (checked, never requested here);
+  // the panel shows at once with cached previews or icons, fresh previews fill in as they arrive
+  const BOOL thumbnails = [DeskflowSwitcherThumbnailer available];
+  if (thumbnails) {
+    [_thumbnailer applyCachedThumbnailsTo:_items];
+  }
+  [_panel showItems:_items selection:_selection thumbnails:thumbnails];
   LOG_DEBUG(
-      "window switcher: opened with %lu windows in %.0f ms", static_cast<unsigned long>(_items.count),
-      (CFAbsoluteTimeGetCurrent() - started) * 1000.0
+      "window switcher: opened with %lu windows in %.0f ms%s", static_cast<unsigned long>(_items.count),
+      (CFAbsoluteTimeGetCurrent() - started) * 1000.0, thumbnails ? ", with thumbnails" : ""
   );
+  if (thumbnails) {
+    DeskflowSwitcherPanel *panel = _panel;
+    [_thumbnailer startForItems:_items
+                      selection:_selection
+                          scale:_panel.backingScale
+                        updated:^(NSUInteger index) {
+                          [panel refreshItemAtIndex:index];
+                        }];
+  }
   [self armIdleTimeout];
 }
 
@@ -393,8 +426,12 @@ bool isSwitchableWindow(NSString *role, NSString *subrole, NSString *title)
 
 - (void)hidePanel
 {
+  const BOOL wasOpen = _open;
   _open = NO;
   ++_generation;
+  if (wasOpen) {
+    [_thumbnailer cancel];
+  }
   [_panel hide];
   _items = @[];
   _selection = 0;

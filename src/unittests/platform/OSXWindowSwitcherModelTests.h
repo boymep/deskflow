@@ -21,4 +21,11 @@ private Q_SLOTS:
   void orderMinimizedIgnoresStaleZ();
   void initialSelection();
   void stepWraps();
+  void thumbnailSizeFits();
+  void thumbnailSizeInvalid();
+  void matchById();
+  void matchByTitleAndFrame();
+  void matchAmbiguous();
+  void captureOrder();
+  void lruBoundedAndRecent();
 };

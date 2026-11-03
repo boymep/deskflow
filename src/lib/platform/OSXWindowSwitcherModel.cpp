@@ -7,6 +7,7 @@
 #include "platform/OSXWindowSwitcherModel.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <tuple>
 
@@ -126,6 +127,88 @@ size_t switcherStep(size_t current, size_t count, int delta)
     next += n;
   }
   return static_cast<size_t>(next);
+}
+
+SwitcherPixelSize switcherThumbnailSize(SwitcherRect window, SwitcherRect box, double scale, int maxPixelWidth)
+{
+  const auto valid = [](double v) { return std::isfinite(v) && v > 0; };
+  if (!valid(window.width) || !valid(window.height) || !valid(box.width) || !valid(box.height) || !valid(scale) ||
+      maxPixelWidth <= 0) {
+    return {};
+  }
+  // aspect-fit into the box, but never upscale the window
+  double factor = std::min({box.width / window.width, box.height / window.height, 1.0}) * scale;
+  factor = std::min(factor, static_cast<double>(maxPixelWidth) / window.width);
+  const auto px = [](double v) { return std::max(1, static_cast<int>(std::lround(v))); };
+  return {std::min(px(window.width * factor), maxPixelWidth), px(window.height * factor)};
+}
+
+std::optional<size_t> matchSwitcherWindow(
+    const SwitcherCaptureWindow &item, const std::vector<SwitcherCaptureWindow> &windows,
+    const std::vector<SwitcherWindowId> &claimed
+)
+{
+  if (item.windowId != 0) {
+    for (size_t i = 0; i < windows.size(); ++i) {
+      if (windows[i].windowId == item.windowId) {
+        return i;
+      }
+    }
+    return std::nullopt;
+  }
+
+  constexpr double kTolerance = 2.0;
+  const bool hasFrame = item.frame.width > 0 && item.frame.height > 0;
+  const auto frameClose = [&](const SwitcherRect &r) {
+    return hasFrame && std::abs(r.x - item.frame.x) <= kTolerance && std::abs(r.y - item.frame.y) <= kTolerance &&
+           std::abs(r.width - item.frame.width) <= kTolerance && std::abs(r.height - item.frame.height) <= kTolerance;
+  };
+
+  std::optional<size_t> titleMatch;
+  std::optional<size_t> frameMatch;
+  size_t titleMatches = 0;
+  size_t frameMatches = 0;
+  for (size_t i = 0; i < windows.size(); ++i) {
+    const auto &w = windows[i];
+    if (w.pid != item.pid || w.windowId == 0 ||
+        std::find(claimed.begin(), claimed.end(), w.windowId) != claimed.end()) {
+      continue;
+    }
+    const bool sameTitle = !item.title.empty() && w.title == item.title;
+    const bool sameFrame = frameClose(w.frame);
+    if (sameTitle && sameFrame) {
+      return i;
+    }
+    if (sameTitle && titleMatches++ == 0) {
+      titleMatch = i;
+    }
+    if (sameFrame && frameMatches++ == 0) {
+      frameMatch = i;
+    }
+  }
+  if (titleMatches == 1) {
+    return titleMatch;
+  }
+  if (titleMatches == 0 && frameMatches == 1) {
+    return frameMatch;
+  }
+  return std::nullopt;
+}
+
+std::vector<size_t> switcherCaptureOrder(size_t count, size_t selection, size_t limit)
+{
+  std::vector<size_t> order;
+  if (count == 0 || limit == 0) {
+    return order;
+  }
+  selection = std::min(selection, count - 1);
+  order.push_back(selection);
+  for (size_t i = 0; i < count && order.size() < limit; ++i) {
+    if (i != selection) {
+      order.push_back(i);
+    }
+  }
+  return order;
 }
 
 } // namespace deskflow::osx
