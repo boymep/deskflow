@@ -1402,14 +1402,6 @@ Enabling this setting will disable the server config GUI.</source>
         <source>Check for updates now</source>
         <translation>Проверить обновления сейчас</translation>
     </message>
-    <message>
-        <source>Download, verify and install new versions without asking, then restart</source>
-        <translation>Скачивать, проверять и устанавливать новые версии без вопросов, затем перезапускаться</translation>
-    </message>
-    <message>
-        <source>Install updates automatically</source>
-        <translation>Устанавливать обновления автоматически</translation>
-    </message>
 </context>
 <context>
     <name>SettingsDialogButtonBox</name>

@@ -131,7 +131,6 @@ void SettingsDialog::initConnections() const
   connect(ui->rbCloseToTray, &QRadioButton::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbElevateDaemon, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->btnCheckUpdates, &QPushButton::clicked, this, &SettingsDialog::checkUpdatesNow);
-  connect(ui->cbAutoInstallUpdates, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbGuiDebug, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbShowVersion, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
   connect(ui->cbRequireClientCert, &QCheckBox::toggled, this, &SettingsDialog::setButtonBoxEnabledButtons);
@@ -239,7 +238,6 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Core::Language, I18N::nativeTo639Name(ui->comboLanguage->currentText()));
   Settings::setValue(Settings::Log::GuiDebug, ui->cbGuiDebug->isChecked());
   Settings::setValue(Settings::Gui::ShowVersionInTitle, ui->cbShowVersion->isChecked());
-  Settings::setValue(Settings::Gui::AutoInstallUpdates, ui->cbAutoInstallUpdates->isChecked());
   Settings::setValue(Settings::Core::EnableEnterCommand, ui->cbRunEnterCommand->isChecked());
   Settings::setValue(Settings::Core::EnableExitCommand, ui->cbRunExitCommand->isChecked());
   Settings::setValue(Settings::Core::ComputerEnterCommand, ui->lineCommandEnter->text());
@@ -267,7 +265,6 @@ void SettingsDialog::loadFromConfig()
   ui->cbElevateDaemon->setChecked(Settings::value(Settings::Daemon::Elevate).toBool());
   ui->cbGuiDebug->setChecked(Settings::value(Settings::Log::GuiDebug).toBool());
   ui->cbShowVersion->setChecked(Settings::value(Settings::Gui::ShowVersionInTitle).toBool());
-  ui->cbAutoInstallUpdates->setChecked(Settings::value(Settings::Gui::AutoInstallUpdates).toBool());
   ui->cbRunEnterCommand->setChecked(Settings::value(Settings::Core::EnableEnterCommand).toBool());
   ui->cbRunExitCommand->setChecked(Settings::value(Settings::Core::EnableExitCommand).toBool());
   ui->lineCommandEnter->setText(Settings::value(Settings::Core::ComputerEnterCommand).toString());
@@ -381,7 +378,6 @@ void SettingsDialog::updateControls()
   ui->groupLogToFile->setEnabled(writable);
   ui->comboLanguage->setEnabled(writable);
   ui->cbShowVersion->setEnabled(writable);
-  ui->cbAutoInstallUpdates->setEnabled(writable);
   ui->cbGuiDebug->setEnabled(writable);
   ui->rbIconColorful->setEnabled(writable);
   ui->rbIconMono->setEnabled(writable);
@@ -440,7 +436,6 @@ bool SettingsDialog::isModified() const
       (ui->cbElevateDaemon->isChecked() != Settings::value(Settings::Daemon::Elevate).toBool()) ||
       (ui->cbGuiDebug->isChecked() != Settings::value(Settings::Log::GuiDebug).toBool()) ||
       (ui->cbShowVersion->isChecked() != Settings::value(Settings::Gui::ShowVersionInTitle).toBool()) ||
-      (ui->cbAutoInstallUpdates->isChecked() != Settings::value(Settings::Gui::AutoInstallUpdates).toBool()) ||
       (ui->rbIconMono->isChecked() != Settings::value(Settings::Gui::SymbolicTrayIcon).toBool()) ||
       (ui->groupService->isChecked() != (processMode == Settings::ProcessMode::Service)) ||
       (ui->lineTlsCertPath->text() != Settings::value(Settings::Security::Certificate).toString()) ||

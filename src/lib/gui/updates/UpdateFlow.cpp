@@ -40,11 +40,6 @@ const auto kFileManager = QStringLiteral("Finder");
 const auto kAppManagementUrl =
     QStringLiteral("x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles");
 
-bool autoInstallEnabled()
-{
-  return Settings::value(Settings::Gui::AutoInstallUpdates).toBool();
-}
-
 /// A non-modal message box that deletes itself, so a background install never blocks the app.
 QMessageBox *nonModalMessage(QWidget *parent, const QString &title, const QString &text, const QString &details)
 {
@@ -182,14 +177,12 @@ void UpdateFlow::handleUpdateAvailable(const QString &version)
 
   // a version macOS refused to install is only installed again when the user asks for it
   const auto blocked = Settings::value(Settings::Gui::UpdateBlockedVersion).toString();
-  if (autoInstallEnabled() && (m_interactive || version != blocked)) {
+  if (m_interactive || version != blocked) {
     startDownload(version, false);
     return;
   }
 
   Q_EMIT updateFound(version);
-  if (m_interactive)
-    offerDownload();
 }
 
 void UpdateFlow::handleProgress(qint64 received, qint64 total)

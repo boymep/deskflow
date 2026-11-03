@@ -100,16 +100,6 @@
             </widget>
            </item>
            <item>
-            <widget class="QCheckBox" name="cbAutoInstallUpdates">
-             <property name="toolTip">
-              <string>Download, verify and install new versions without asking, then restart</string>
-             </property>
-             <property name="text">
-              <string>Install updates automatically</string>
-             </property>
-            </widget>
-           </item>
-           <item>
             <spacer name="horizontalSpacer_updates">
              <property name="orientation">
               <enum>Qt::Orientation::Horizontal</enum>

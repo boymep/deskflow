@@ -83,7 +83,6 @@ public:
     inline static const auto Autohide = QStringLiteral("gui/autoHide");
     inline static const auto AutoStartCore = QStringLiteral("gui/startCoreWithGui");
     inline static const auto UpdateCheckUrl = QStringLiteral("gui/updateCheckUrl");
-    inline static const auto AutoInstallUpdates = QStringLiteral("gui/autoInstallUpdates");
     // a version macOS refused to install (App Management); it is not installed again automatically
     inline static const auto UpdateBlockedVersion = QStringLiteral("gui/updateBlockedVersion");
     inline static const auto CloseReminder = QStringLiteral("gui/closeReminder");
@@ -320,7 +319,6 @@ private:
     , Gui::Autohide
     , Gui::AutoStartCore
     , Gui::UpdateCheckUrl
-    , Gui::AutoInstallUpdates
     , Gui::UpdateBlockedVersion
     , Gui::CloseReminder
     , Gui::CloseToTray
@@ -390,7 +388,6 @@ private:
     , Client::SideButtonsSwitchSpaces
     , Gui::CloseToTray
     , Gui::CloseReminder
-    , Gui::AutoInstallUpdates
     , Gui::LogExpanded
     , Gui::SymbolicTrayIcon
     , Security::TlsEnabled
