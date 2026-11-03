@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <map>
+#include <memory>
 
 #if !__has_feature(objc_arc)
 #error "OSXWindowSwitcherSpaces.mm must be compiled with ARC (-fobjc-arc)"
@@ -262,10 +263,10 @@ bool readDisplaySpaces(uint32_t displayId, DisplaySpaces &out)
   return out.current != 0;
 }
 
-//! One Space switch in progress; copied into each scheduled block (main thread only).
+//! One Space switch in progress (main thread only). Owned by the scheduled blocks through a shared_ptr.
 struct SpaceSwitch
 {
-  uint64_t generation = 0;
+  uint64_t id = 0; //!< number of this switch, for the log
   uint32_t displayId = 0;
   uint64_t target = 0;
   uint64_t from = 0;     //!< Space current when the last step was posted
@@ -274,7 +275,9 @@ struct SpaceSwitch
   int steps = 0; //!< steps posted so far
 };
 
-uint64_t g_spaceSwitchGeneration = 0; // main thread; a newer switch cancels the running one
+// main thread; the switch that is running. A new commit replaces it, which stops the old one.
+std::shared_ptr<SpaceSwitch> g_activeSpaceSwitch;
+uint64_t g_spaceSwitchCount = 0; // main thread
 
 constexpr CFAbsoluteTime kSpacePollInterval = 0.02; // how often the current Space is read while a step runs
 constexpr CFAbsoluteTime kSpaceStepTimeout = 1.0;   // a step that did not land by then stops the switch
@@ -297,10 +300,12 @@ void postSpaceStep(int direction)
   }
 }
 
-void continueSpaceSwitch(SpaceSwitch session);
+void continueSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session);
 
-void scheduleSpaceSwitch(const SpaceSwitch &session, CFAbsoluteTime delay)
+void scheduleSpaceSwitch(std::shared_ptr<SpaceSwitch> session, CFAbsoluteTime delay)
 {
+  // the block keeps its own copy of the shared_ptr (a block captures a C++ reference as a reference,
+  // so capturing a reference parameter here would leave the block with a dangling session)
   dispatch_after(
       dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         continueSpaceSwitch(session);
@@ -308,53 +313,65 @@ void scheduleSpaceSwitch(const SpaceSwitch &session, CFAbsoluteTime delay)
   );
 }
 
-void continueSpaceSwitch(SpaceSwitch session)
+void endSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session)
+{
+  if (g_activeSpaceSwitch == session) {
+    g_activeSpaceSwitch.reset();
+  }
+}
+
+void continueSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session)
 {
   using Action = deskflow::osx::SwitcherSpaceStepPlan::Action;
-  if (session.generation != g_spaceSwitchGeneration) {
-    LOG_INFO("space switch: replaced by a newer one after %d steps", session.steps);
+  const auto id = static_cast<unsigned long long>(session->id);
+  if (g_activeSpaceSwitch != session) {
+    LOG_INFO("space switch #%llu: replaced by a newer one after %d steps", id, session->steps);
     return;
   }
   DisplaySpaces spaces;
-  if (!readDisplaySpaces(session.displayId, spaces)) {
-    LOG_INFO("space switch: spaces unknown after %d steps, stopped", session.steps);
+  if (!readDisplaySpaces(session->displayId, spaces)) {
+    LOG_INFO("space switch #%llu: spaces unknown after %d steps, stopped", id, session->steps);
+    endSpaceSwitch(session);
     return;
   }
   const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-  if (session.expected != 0 && spaces.current == session.from) {
+  if (session->expected != 0 && spaces.current == session->from) {
     // the last step has not landed yet
-    if (now - session.postedAt > kSpaceStepTimeout) {
-      LOG_INFO("space switch: step %d did not land within a second, stopped", session.steps);
+    if (now - session->postedAt > kSpaceStepTimeout) {
+      LOG_INFO("space switch #%llu: step %d did not land within a second, stopped", id, session->steps);
+      endSpaceSwitch(session);
       return;
     }
     scheduleSpaceSwitch(session, kSpacePollInterval);
     return;
   }
   const auto plan =
-      deskflow::osx::switcherPlanSpaceStep(spaces.order, spaces.current, session.target, session.expected);
+      deskflow::osx::switcherPlanSpaceStep(spaces.order, spaces.current, session->target, session->expected);
   switch (plan.action) {
   case Action::Done:
-    LOG_INFO("space switch: arrived after %d steps", session.steps);
+    LOG_INFO("space switch #%llu: arrived after %d steps", id, session->steps);
+    endSpaceSwitch(session);
     return;
   case Action::Abort:
     LOG_INFO(
-        "space switch: stopped after %d steps, %s", session.steps,
-        session.expected != 0 ? "spaces were switched by something else" : "current or target space unknown"
+        "space switch #%llu: stopped after %d steps, %s", id, session->steps,
+        session->expected != 0 ? "spaces were switched by something else" : "current or target space unknown"
     );
+    endSpaceSwitch(session);
     return;
   case Action::Step:
     break;
   }
-  if (session.expected != 0 && now - session.postedAt < kSpaceStepInterval) {
-    scheduleSpaceSwitch(session, kSpaceStepInterval - (now - session.postedAt));
+  if (session->expected != 0 && now - session->postedAt < kSpaceStepInterval) {
+    scheduleSpaceSwitch(session, kSpaceStepInterval - (now - session->postedAt));
     return;
   }
-  session.from = spaces.current;
-  session.expected = plan.expected;
-  session.postedAt = now;
-  ++session.steps;
+  session->from = spaces.current;
+  session->expected = plan.expected;
+  session->postedAt = now;
+  ++session->steps;
   LOG_INFO(
-      "space switch: step %d to the %s, %d left", session.steps, plan.direction > 0 ? "right" : "left",
+      "space switch #%llu: step %d to the %s, %d left", id, session->steps, plan.direction > 0 ? "right" : "left",
       plan.remaining - 1
   );
   postSpaceStep(plan.direction);
@@ -509,25 +526,31 @@ std::vector<SwitcherTile> switcherVisibleFullscreenWindows()
 
 void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId)
 {
-  const SpaceSwitch session{++g_spaceSwitchGeneration, displayId, spaceId};
+  // a new commit: it replaces (and so stops) a switch that is still running
+  auto session = std::make_shared<SpaceSwitch>();
+  session->id = ++g_spaceSwitchCount;
+  session->displayId = displayId;
+  session->target = spaceId;
+  g_activeSpaceSwitch = session;
+  const auto id = static_cast<unsigned long long>(session->id);
   DisplaySpaces spaces;
   if (!switcherSpacesAvailable() || !readDisplaySpaces(displayId, spaces)) {
-    LOG_INFO("space switch: spaces of display %u unknown, nothing done", displayId);
+    LOG_INFO("space switch #%llu: spaces of display %u unknown, nothing done", id, displayId);
+    endSpaceSwitch(session);
     return;
   }
   const auto target = std::find_if(spaces.entries.begin(), spaces.entries.end(), [spaceId](const auto &entry) {
     return entry.id == spaceId;
   });
-  if (target != spaces.entries.end() && target->kind == SwitcherSpaceKind::Fullscreen && !target->tiles.empty() &&
-      spaces.current != spaceId) {
-    // no stepping through the Spaces in between: macOS switches to the Space of a focused window
-    const auto &tile = target->tiles.front();
-    if (switcherFocusWindow(tile.pid, tile.windowId)) {
-      LOG_INFO("space switch: focused the window of fullscreen space %llu", static_cast<unsigned long long>(spaceId));
-      return;
-    }
-    LOG_INFO("space switch: fullscreen window could not be focused, stepping instead");
-  }
+  // fullscreen Spaces are stepped to like desktops: focusing their window does not switch Spaces on
+  // current macOS versions
+  LOG_INFO(
+      "space switch #%llu: to %s space %llu from %llu by stepping", id,
+      target == spaces.entries.end()                  ? "unknown"
+      : target->kind == SwitcherSpaceKind::Fullscreen ? "fullscreen"
+                                                      : "desktop",
+      static_cast<unsigned long long>(spaceId), static_cast<unsigned long long>(spaces.current)
+  );
   continueSpaceSwitch(session);
 }
 

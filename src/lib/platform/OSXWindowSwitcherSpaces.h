@@ -68,7 +68,7 @@ std::vector<SwitcherTile> switcherVisibleFullscreenWindows();
 
 //! Switches display \p displayId (CGDirectDisplayID) to Space \p spaceId.
 /*!
-Main thread, returns at once. A fullscreen Space is reached by focusing its window. Otherwise one
+Main thread, returns at once. Desktops and fullscreen Spaces are both reached by stepping: one
 Control+Arrow (the same key event as the side buttons) is posted at a time; the next one only after
 the window server reports the expected Space as current, and the remaining distance is recomputed
 from the Space that is current then, so the switch never goes past the target. It stops if a step
