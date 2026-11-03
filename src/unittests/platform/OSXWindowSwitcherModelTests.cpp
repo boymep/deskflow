@@ -324,6 +324,52 @@ void OSXWindowSwitcherModelTests::captureOrder()
   QCOMPARE(switcherCaptureOrder(3, 9, 30), (std::vector<size_t>{2, 0, 1}));
 }
 
+void OSXWindowSwitcherModelTests::emptyDesktops()
+{
+  // desktops 1..4 with ids 10..13; current is the second; windows on 10 and 12
+  const std::vector<SwitcherSpaceEntry> spaces{{10, true}, {11, true}, {12, true}, {13, true}};
+  const auto result = switcherEmptyDesktops(spaces, 11, {10, 12});
+  QCOMPARE(result.size(), size_t(1));
+  QCOMPARE(result[0].spaceId, uint64_t(13));
+  QCOMPARE(result[0].number, 4);
+  QCOMPARE(result[0].steps, 2);
+
+  // the current desktop is never offered, empty or not; empty ones before it go left
+  const auto all = switcherEmptyDesktops(spaces, 12, {});
+  QCOMPARE(all.size(), size_t(3));
+  QCOMPARE(all[0].number, 1);
+  QCOMPARE(all[0].steps, -2);
+  QCOMPARE(all[1].number, 2);
+  QCOMPARE(all[1].steps, -1);
+  QCOMPARE(all[2].number, 4);
+  QCOMPARE(all[2].steps, 1);
+
+  QVERIFY(switcherEmptyDesktops(spaces, 10, {11, 12, 13}).empty());
+}
+
+void OSXWindowSwitcherModelTests::emptyDesktopsSkipsFullscreenNumbers()
+{
+  // a fullscreen app Space is not numbered but is a step for Control+Arrow
+  const std::vector<SwitcherSpaceEntry> spaces{{1, true}, {2, false}, {3, true}, {4, true}};
+  const auto result = switcherEmptyDesktops(spaces, 1, {4});
+  QCOMPARE(result.size(), size_t(1));
+  QCOMPARE(result[0].spaceId, uint64_t(3));
+  QCOMPARE(result[0].number, 2);
+  QCOMPARE(result[0].steps, 2);
+}
+
+void OSXWindowSwitcherModelTests::emptyDesktopsUnknownCurrent()
+{
+  const std::vector<SwitcherSpaceEntry> spaces{{1, true}, {2, true}};
+  QVERIFY(switcherEmptyDesktops(spaces, 99, {}).empty());
+  QVERIFY(switcherEmptyDesktops({}, 1, {}).empty());
+}
+
+void OSXWindowSwitcherModelTests::desktopTitle()
+{
+  QCOMPARE(QString::fromStdString(switcherDesktopTitle(3)), QStringLiteral("Desktop 3"));
+}
+
 void OSXWindowSwitcherModelTests::lruBoundedAndRecent()
 {
   SwitcherLru<SwitcherWindowId, int> lru(2);

@@ -35,6 +35,11 @@ cache is dropped a few minutes after the switcher closes.
             selection:(NSUInteger)selection
                 scale:(CGFloat)scale
               updated:(void (^)(NSUInteger index))updated;
+//! The wallpaper image loaded before for \p url, or nil.
+- (nullable NSImage *)cachedWallpaper:(NSURL *)url scale:(CGFloat)scale;
+//! Loads and downscales the wallpaper file \p url off the main thread; \p done runs on the main thread
+//! with the image (nil on failure). Needs no permission.
+- (void)loadWallpaper:(NSURL *)url scale:(CGFloat)scale done:(void (^)(NSImage *_Nullable image))done;
 //! Drops pending captures (running ones are ignored when they finish) and schedules the cache cleanup.
 - (void)cancel;
 @end

@@ -49,6 +49,21 @@ std::vector<SwitcherSpaceWindowInfo> switcherOtherSpaceWindows(
     const std::vector<SwitcherWindowId> &known, const std::vector<SwitcherPid> &allowed, size_t limit
 );
 
+//! Empty desktops of the display \p displayId (CGDirectDisplayID) except its current Space, in Mission Control order.
+/*!
+A desktop is empty if none of the plausible user windows of \p allowed processes is on it (windows on all
+desktops do not count). Slow-ish (one window server call per window); empty if switcherSpacesAvailable()
+is false, the display is unknown or a call fails.
+*/
+std::vector<SwitcherDesktop> switcherEmptyDesktopsOnDisplay(uint32_t displayId, const std::vector<SwitcherPid> &allowed);
+
+//! Switches the display under the mouse pointer by \p steps desktops (positive: right) with Control+Arrow.
+/*!
+Main thread. Posts the same key events as the side buttons (Control and fn flags), one step every
+few hundred milliseconds so the Space animation can finish. Does nothing for 0 steps.
+*/
+void switcherSwitchSpaces(int steps);
+
 //! Brings window \p windowId of \p pid to the front and makes it key; macOS switches to its Space.
 /*!
 Main thread. Returns false (nothing done) if the private calls are missing or fail.

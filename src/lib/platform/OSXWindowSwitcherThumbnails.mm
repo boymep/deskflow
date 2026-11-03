@@ -67,6 +67,7 @@ struct DeskflowCaptureJob
   uint64_t _generation;
   uint64_t _cacheGeneration;
   int _inFlight;
+  NSMutableDictionary<NSString *, NSImage *> *_wallpapers; //!< by file URL and scale
 #if DESKFLOW_SWITCHER_SCK
   std::deque<DeskflowCaptureJob> _pending;
 #endif
@@ -88,6 +89,7 @@ struct DeskflowCaptureJob
   if ((self = [super init])) {
     _cache = std::make_unique<SwitcherLru<SwitcherWindowId, NSImage *>>(kCacheEntries);
     _items = @[];
+    _wallpapers = [NSMutableDictionary dictionary];
   }
   return self;
 }
@@ -102,6 +104,59 @@ struct DeskflowCaptureJob
       item.thumbnail = *cached;
     }
   }
+}
+
+static NSString *wallpaperKey(NSURL *url, CGFloat scale)
+{
+  return [NSString stringWithFormat:@"%@@%g", url.absoluteString, scale];
+}
+
+- (NSImage *)cachedWallpaper:(NSURL *)url scale:(CGFloat)scale
+{
+  return _wallpapers[wallpaperKey(url, scale > 0 ? scale : 2.0)];
+}
+
+- (void)loadWallpaper:(NSURL *)url scale:(CGFloat)scale done:(void (^)(NSImage *_Nullable))done
+{
+  if (scale <= 0) {
+    scale = 2.0;
+  }
+  NSString *key = wallpaperKey(url, scale);
+  if (NSImage *cached = _wallpapers[key]; cached != nil) {
+    done(cached);
+    return;
+  }
+  const NSSize box = [DeskflowSwitcherPanel thumbnailBoxSize];
+  const CGFloat maxPixels = MAX(box.width, box.height) * scale;
+  __weak DeskflowSwitcherThumbnailer *weakSelf = self;
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    CGImageRef image = nullptr;
+    if (CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)url, nullptr); source != nullptr) {
+      NSDictionary *options = @{
+        (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways : @YES,
+        (__bridge NSString *)kCGImageSourceCreateThumbnailWithTransform : @YES,
+        (__bridge NSString *)kCGImageSourceThumbnailMaxPixelSize : @(maxPixels)
+      };
+      image = CGImageSourceCreateThumbnailAtIndex(source, 0, (__bridge CFDictionaryRef)options);
+      CFRelease(source);
+    }
+    NSImage *result = nil;
+    if (image != nullptr) {
+      result = [[NSImage alloc] initWithCGImage:image
+                                           size:NSMakeSize(CGImageGetWidth(image) / scale, CGImageGetHeight(image) / scale)];
+      CGImageRelease(image);
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      DeskflowSwitcherThumbnailer *strongSelf = weakSelf;
+      if (result != nil && strongSelf != nil) {
+        if (strongSelf->_wallpapers.count >= 8) {
+          [strongSelf->_wallpapers removeAllObjects];
+        }
+        strongSelf->_wallpapers[key] = result;
+      }
+      done(result);
+    });
+  });
 }
 
 - (void)startForItems:(NSArray<DeskflowSwitcherItem *> *)items
@@ -147,6 +202,7 @@ struct DeskflowCaptureJob
     DeskflowSwitcherThumbnailer *strongSelf = weakSelf;
     if (strongSelf != nil && strongSelf->_cacheGeneration == cacheGeneration) {
       strongSelf->_cache->clear();
+      [strongSelf->_wallpapers removeAllObjects];
     }
   });
 }
@@ -188,8 +244,8 @@ struct DeskflowCaptureJob
   std::vector<SwitcherWindowId> claimed;
   for (const auto index : deskflow::osx::switcherCaptureOrder(_items.count, _selection, kMaxCaptures)) {
     DeskflowSwitcherItem *item = _items[index];
-    if (item.minimized) {
-      continue; // a minimized window has no current content; keep the cached preview
+    if (item.minimized || item.desktop) {
+      continue; // a desktop has its wallpaper; a minimized window has no current content; keep the cached preview
     }
     const SwitcherCaptureWindow query{
         item.windowId, item.pid, std::string(item.title.UTF8String ?: ""), rectOf(item.frame)

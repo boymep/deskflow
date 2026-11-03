@@ -25,6 +25,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, strong, nullable) id axWindow; //!< AXUIElementRef of the window
 @property(nonatomic, assign) CGRect frame;          //!< Accessibility frame, global points, top-left origin
 @property(nonatomic, assign) BOOL otherSpace;       //!< on a Space that is not shown right now
+@property(nonatomic, assign) BOOL desktop;          //!< an empty Mission Control desktop, not a window
+@property(nonatomic, assign) int desktopSteps;      //!< Control+Right presses to get there (negative: left)
+@property(nonatomic, strong, nullable) NSURL *wallpaperURL; //!< wallpaper shown as the thumbnail of a desktop
 @end
 
 //! Borderless, non-activating panel that shows switcher items in a grid.

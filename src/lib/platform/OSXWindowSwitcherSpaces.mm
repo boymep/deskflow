@@ -13,6 +13,7 @@
 #import <dlfcn.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 
 #if !__has_feature(objc_arc)
@@ -141,6 +142,32 @@ bool readSpaces(int32_t connection, std::vector<uint64_t> &userSpaces, std::vect
   return !userSpaces.empty() && !visibleSpaces.empty();
 }
 
+//! The managed display dictionary of \p displayId, or nil.
+NSDictionary *managedDisplay(NSArray *displays, uint32_t displayId)
+{
+  NSString *uuid = nil;
+  if (CFUUIDRef ref = CGDisplayCreateUUIDFromDisplayID(displayId); ref != nullptr) {
+    uuid = CFBridgingRelease(CFUUIDCreateString(kCFAllocatorDefault, ref));
+    CFRelease(ref);
+  }
+  NSDictionary *only = nil;
+  NSUInteger count = 0;
+  for (NSDictionary *display in displays) {
+    if (![display isKindOfClass:[NSDictionary class]]) {
+      continue;
+    }
+    only = display;
+    ++count;
+    NSString *identifier = display[@"Display Identifier"];
+    if ([identifier isKindOfClass:[NSString class]] &&
+        (([identifier caseInsensitiveCompare:uuid ?: @""] == NSOrderedSame) ||
+         ([identifier isEqualToString:@"Main"] && displayId == CGMainDisplayID()))) {
+      return display;
+    }
+  }
+  return count == 1 ? only : nil; // a single display is the one asked for
+}
+
 std::vector<uint64_t> spacesOf(int32_t connection, SwitcherWindowId windowId)
 {
   std::vector<uint64_t> spaces;
@@ -247,6 +274,94 @@ std::vector<SwitcherSpaceWindowInfo> switcherOtherSpaceWindows(
     result.push_back(SwitcherSpaceWindowInfo{w.windowId, w.pid, std::string(titles[index].UTF8String ?: ""), w.frame});
   }
   return result;
+}
+
+std::vector<SwitcherDesktop> switcherEmptyDesktopsOnDisplay(uint32_t displayId, const std::vector<SwitcherPid> &allowed)
+{
+  std::vector<SwitcherDesktop> result;
+  if (!switcherSpacesAvailable()) {
+    return result;
+  }
+  const int32_t connection = spi().connection();
+  CFArrayRef raw = spi().copyManagedDisplaySpaces(connection);
+  if (raw == nullptr) {
+    return result;
+  }
+  NSArray *displays = CFBridgingRelease(raw);
+  if (![displays isKindOfClass:[NSArray class]]) {
+    return result;
+  }
+  NSDictionary *display = managedDisplay(displays, displayId);
+  NSArray *rawSpaces = display[@"Spaces"];
+  if (display == nil || ![rawSpaces isKindOfClass:[NSArray class]]) {
+    return result;
+  }
+  const uint64_t current = spaceIdOf(display[@"Current Space"]);
+  std::vector<SwitcherSpaceEntry> spaces;
+  for (NSDictionary *space in rawSpaces) {
+    if (const uint64_t id = spaceIdOf(space); id != 0) {
+      spaces.push_back(SwitcherSpaceEntry{id, static_cast<int>(numberValue(space[@"type"])) == kUserSpaceType});
+    }
+  }
+
+  CFArrayRef infoRaw =
+      CGWindowListCopyWindowInfo(kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+  if (infoRaw == nullptr) {
+    return result;
+  }
+  NSArray *infos = CFBridgingRelease(infoRaw);
+  std::vector<uint64_t> occupied;
+  size_t queried = 0;
+  for (NSDictionary *info in infos) {
+    if (queried >= kMaxSpaceQueries) {
+      return result; // too many windows to be sure a desktop is empty: offer none
+    }
+    SwitcherSpaceWindow window;
+    window.windowId = static_cast<SwitcherWindowId>(numberValue(info[(__bridge NSString *)kCGWindowNumber]));
+    window.pid = static_cast<SwitcherPid>([info[(__bridge NSString *)kCGWindowOwnerPID] intValue]);
+    window.layer = [info[(__bridge NSString *)kCGWindowLayer] intValue];
+    id alpha = info[(__bridge NSString *)kCGWindowAlpha];
+    window.alpha = [alpha isKindOfClass:[NSNumber class]] ? [alpha doubleValue] : 1.0;
+    CGRect bounds = CGRectZero;
+    if (NSDictionary *boundsDict = info[(__bridge NSString *)kCGWindowBounds];
+        [boundsDict isKindOfClass:[NSDictionary class]]) {
+      CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)boundsDict, &bounds);
+    }
+    window.frame = {bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height};
+    if (!switcherSpaceWindowPlausible(window, allowed)) {
+      continue;
+    }
+    ++queried;
+    if (const auto onSpaces = spacesOf(connection, window.windowId); onSpaces.size() == 1) {
+      occupied.push_back(onSpaces.front()); // a window on several desktops belongs to none of them
+    }
+  }
+  return switcherEmptyDesktops(spaces, current, occupied);
+}
+
+void switcherSwitchSpaces(int steps)
+{
+  constexpr CGKeyCode kLeftArrow = 123;
+  constexpr CGKeyCode kRightArrow = 124;
+  constexpr int64_t kStepDelayMs = 350;
+  if (steps == 0) {
+    return;
+  }
+  const CGKeyCode key = steps > 0 ? kRightArrow : kLeftArrow;
+  for (int i = 0; i < std::abs(steps); ++i) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, i * kStepDelayMs * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+      for (const bool down : {true, false}) {
+        CGEventRef event = CGEventCreateKeyboardEvent(nullptr, key, down);
+        if (event == nullptr) {
+          return;
+        }
+        // same flags as the side buttons: macOS ignores a synthetic Control+Arrow without fn
+        CGEventSetFlags(event, kCGEventFlagMaskControl | kCGEventFlagMaskSecondaryFn);
+        CGEventPost(kCGHIDEventTap, event);
+        CFRelease(event);
+      }
+    });
+  }
 }
 
 bool switcherFocusWindow(SwitcherPid pid, SwitcherWindowId windowId)

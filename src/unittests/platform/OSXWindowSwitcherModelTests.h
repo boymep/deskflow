@@ -33,5 +33,9 @@ private Q_SLOTS:
   void matchByTitleAndFrame();
   void matchAmbiguous();
   void captureOrder();
+  void emptyDesktops();
+  void emptyDesktopsSkipsFullscreenNumbers();
+  void emptyDesktopsUnknownCurrent();
+  void desktopTitle();
   void lruBoundedAndRecent();
 };

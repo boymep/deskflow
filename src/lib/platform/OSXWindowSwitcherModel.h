@@ -129,6 +129,34 @@ std::vector<size_t> selectOtherSpaceWindows(
     const std::vector<uint64_t> &visibleSpaces, size_t limit
 );
 
+//! A Space of one display in Mission Control order (pure data).
+struct SwitcherSpaceEntry
+{
+  uint64_t id = 0;
+  bool desktop = false; //!< a Mission Control desktop; false for a fullscreen app or another kind of Space
+};
+
+//! An empty desktop the switcher can jump to.
+struct SwitcherDesktop
+{
+  uint64_t spaceId = 0;
+  int number = 0; //!< "Desktop N" of Mission Control, counted from 1 over the desktops of the display
+  int steps = 0;  //!< Control+Right presses from the current Space (negative: Control+Left presses)
+};
+
+//! Empty desktops of one display, except the \p current Space, in Mission Control order.
+/*!
+\p spaces are all Spaces of the display in order (desktops are numbered 1..N, fullscreen
+apps are not numbered but still count as a step). A desktop is empty if its id is not in
+\p occupied. Yields nothing if \p current is not among \p spaces.
+*/
+std::vector<SwitcherDesktop> switcherEmptyDesktops(
+    const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current, const std::vector<uint64_t> &occupied
+);
+
+//! Title of the switcher item of desktop \p number (translated, "Desktop 2").
+std::string switcherDesktopTitle(int number);
+
 //! Size of a remote Accessibility element token.
 inline constexpr size_t kSwitcherRemoteTokenSize = 20;
 

@@ -7,6 +7,7 @@
 #import "platform/OSXWindowSwitcher.h"
 
 #import "base/Log.h"
+#import "common/I18N.h"
 #import "platform/OSXWindowSwitcherModel.h"
 #import "platform/OSXWindowSwitcherPanel.h"
 #import "platform/OSXWindowSwitcherSpaces.h"
@@ -16,6 +17,7 @@
 #import <Cocoa/Cocoa.h>
 #import <dispatch/dispatch.h>
 #import <dlfcn.h>
+#import <QCoreApplication>
 #import <unistd.h>
 
 #if !__has_feature(objc_arc)
@@ -353,6 +355,54 @@ std::vector<SwitcherWindowId> onScreenWindowOrder()
   return items;
 }
 
+//! Empty desktops of the display under the mouse pointer (Control+Arrow switches that display); empty if unsupported.
+/*!
+Other displays are not offered: moving the pointer to them would move the remote cursor too.
+*/
+- (NSArray<DeskflowSwitcherItem *> *)collectDesktopItems
+{
+  NSMutableArray<DeskflowSwitcherItem *> *items = [NSMutableArray array];
+  if (!deskflow::osx::switcherSpacesAvailable()) {
+    return items;
+  }
+  const NSPoint mouse = NSEvent.mouseLocation;
+  NSScreen *screen = NSScreen.mainScreen;
+  for (NSScreen *candidate in NSScreen.screens) {
+    if (NSPointInRect(mouse, candidate.frame)) {
+      screen = candidate;
+      break;
+    }
+  }
+  NSNumber *displayId = screen.deviceDescription[@"NSScreenNumber"];
+  if (![displayId isKindOfClass:[NSNumber class]]) {
+    return items;
+  }
+  std::vector<deskflow::osx::SwitcherPid> allowed;
+  const pid_t ownPid = getpid();
+  for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
+    if (app.activationPolicy == NSApplicationActivationPolicyRegular && !app.terminated &&
+        app.processIdentifier != ownPid) {
+      allowed.push_back(app.processIdentifier);
+    }
+  }
+  if (QCoreApplication::instance() != nullptr) {
+    I18N::instance(); // installs the translators in this process (the core has none otherwise)
+  }
+  NSURL *wallpaper = [NSWorkspace.sharedWorkspace desktopImageURLForScreen:screen];
+  NSImage *icon = [NSImage imageNamed:NSImageNameComputer];
+  for (const auto &desktop : deskflow::osx::switcherEmptyDesktopsOnDisplay(displayId.unsignedIntValue, allowed)) {
+    DeskflowSwitcherItem *item = [DeskflowSwitcherItem new];
+    item.title = @(deskflow::osx::switcherDesktopTitle(desktop.number).c_str());
+    item.appName = @"";
+    item.icon = icon;
+    item.desktop = YES;
+    item.desktopSteps = desktop.steps;
+    item.wallpaperURL = wallpaper;
+    [items addObject:item];
+  }
+  return items;
+}
+
 //! Looks up Accessibility elements (and titles) of listed windows on other Spaces in the background.
 - (void)resolveOtherSpaceItems
 {
@@ -439,6 +489,7 @@ std::vector<SwitcherWindowId> onScreenWindowOrder()
   for (const auto index : order) {
     [items addObject:found[index]];
   }
+  [items addObjectsFromArray:[self collectDesktopItems]]; // after all windows
   _items = items;
   if (_items.count == 0) {
     LOG_DEBUG("window switcher: no windows to switch to");
@@ -453,7 +504,13 @@ std::vector<SwitcherWindowId> onScreenWindowOrder()
   if (thumbnails) {
     [_thumbnailer applyCachedThumbnailsTo:_items];
   }
+  if (thumbnails) {
+    [self applyWallpapers];
+  }
   [_panel showItems:_items selection:_selection thumbnails:thumbnails];
+  if (thumbnails) {
+    [self loadWallpapers];
+  }
   [self resolveOtherSpaceItems];
   LOG_DEBUG(
       "window switcher: opened with %lu windows in %.0f ms%s", static_cast<unsigned long>(_items.count),
@@ -469,6 +526,42 @@ std::vector<SwitcherWindowId> onScreenWindowOrder()
                         }];
   }
   [self armIdleTimeout];
+}
+
+//! Sets the cached wallpaper as the thumbnail of every desktop item.
+- (void)applyWallpapers
+{
+  for (DeskflowSwitcherItem *item in _items) {
+    if (item.desktop && item.wallpaperURL != nil) {
+      item.thumbnail = [_thumbnailer cachedWallpaper:item.wallpaperURL scale:_panel.backingScale];
+    }
+  }
+}
+
+//! Loads the wallpapers that are not cached yet in the background.
+- (void)loadWallpapers
+{
+  __weak DeskflowWindowSwitcherController *weakSelf = self;
+  for (DeskflowSwitcherItem *item in _items) {
+    if (!item.desktop || item.wallpaperURL == nil || item.thumbnail != nil) {
+      continue;
+    }
+    __weak DeskflowSwitcherItem *weakItem = item;
+    [_thumbnailer loadWallpaper:item.wallpaperURL
+                          scale:_panel.backingScale
+                           done:^(NSImage *image) {
+                             DeskflowWindowSwitcherController *strongSelf = weakSelf;
+                             DeskflowSwitcherItem *strongItem = weakItem;
+                             if (strongSelf == nil || strongItem == nil || image == nil || !strongSelf->_open) {
+                               return;
+                             }
+                             const NSUInteger index = [strongSelf->_items indexOfObjectIdenticalTo:strongItem];
+                             if (index != NSNotFound) {
+                               strongItem.thumbnail = image;
+                               [strongSelf->_panel refreshItemAtIndex:index];
+                             }
+                           }];
+  }
 }
 
 - (void)armIdleTimeout
@@ -525,6 +618,10 @@ std::vector<SwitcherWindowId> onScreenWindowOrder()
 
 - (void)activate:(DeskflowSwitcherItem *)item
 {
+  if (item.desktop) {
+    deskflow::osx::switcherSwitchSpaces(item.desktopSteps);
+    return;
+  }
   NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:item.pid];
   if (app == nil || app.terminated) {
     return;

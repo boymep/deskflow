@@ -6,6 +6,9 @@
 
 #include "platform/OSXWindowSwitcherModel.h"
 
+#include <QCoreApplication>
+#include <QString>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -311,6 +314,35 @@ std::vector<size_t> switcherCaptureOrder(size_t count, size_t selection, size_t 
     }
   }
   return order;
+}
+
+std::vector<SwitcherDesktop> switcherEmptyDesktops(
+    const std::vector<SwitcherSpaceEntry> &spaces, uint64_t current, const std::vector<uint64_t> &occupied
+)
+{
+  std::vector<SwitcherDesktop> result;
+  const auto currentIt = std::find_if(spaces.begin(), spaces.end(), [&](const auto &s) { return s.id == current; });
+  if (currentIt == spaces.end()) {
+    return result;
+  }
+  const auto currentPos = currentIt - spaces.begin();
+  int number = 0;
+  for (auto it = spaces.begin(); it != spaces.end(); ++it) {
+    if (!it->desktop) {
+      continue;
+    }
+    ++number;
+    if (it->id == current || std::find(occupied.begin(), occupied.end(), it->id) != occupied.end()) {
+      continue;
+    }
+    result.push_back(SwitcherDesktop{it->id, number, static_cast<int>((it - spaces.begin()) - currentPos)});
+  }
+  return result;
+}
+
+std::string switcherDesktopTitle(int number)
+{
+  return QCoreApplication::translate("OSXWindowSwitcher", "Desktop %1").arg(number).toStdString();
 }
 
 } // namespace deskflow::osx

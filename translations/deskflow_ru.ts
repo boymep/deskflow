@@ -839,6 +839,13 @@ Additionally, check you are able to %1 the server config file: %2</source>
     </message>
 </context>
 <context>
+    <name>OSXWindowSwitcher</name>
+    <message>
+        <source>Desktop %1</source>
+        <translation>Рабочий стол %1</translation>
+    </message>
+</context>
+<context>
     <name>QObject</name>
     <message>
         <source>fatal error</source>
