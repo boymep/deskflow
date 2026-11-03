@@ -42,4 +42,6 @@ private Q_SLOTS:
   void spaceStepPosition();
   void spaceStepGate();
   void spacesSettled();
+  void desktopHotkeys();
+  void hotkeySwitchPlanner();
 };

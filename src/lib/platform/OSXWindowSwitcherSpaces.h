@@ -53,7 +53,12 @@ std::vector<SwitcherTile> switcherVisibleFullscreenWindows();
 
 //! Switches display \p displayId (CGDirectDisplayID) to Space \p spaceId.
 /*!
-Main thread, returns at once. A fullscreen Space, or a desktop with a window on it, is first jumped
+Main thread, returns at once. A desktop of the first display is first jumped to by its "Switch to
+Desktop N" keyboard shortcut, if that is turned on in the Keyboard settings (read on every switch,
+never written; N counts the desktops only). If the current Space does not change within about 1.6
+seconds the shortcut is not used again until its keys change, and the ways below are tried.
+
+A fullscreen Space, or a desktop with a window on it, is otherwise jumped
 to directly (one transition, like the Dock): the window's app is brought forward by the methods of
 SwitcherDirectMethod, one after another, until the window server reports a Space transition or the
 target as current (about a second at most; \p remote supplies Accessibility elements of windows on

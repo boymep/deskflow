@@ -274,6 +274,67 @@ SwitcherDirectPlan switcherPlanDirectSwitch(
     const SwitcherDirectObservation &now, const SwitcherDirectTiming &timing = {}
 );
 
+//! Id of the first "Switch to Desktop N" symbolic hotkey of macOS (Desktop 1; Desktop N is this + N - 1).
+inline constexpr int kSwitcherDesktopHotkeyFirst = 118;
+//! Number of "Switch to Desktop N" symbolic hotkeys (Desktop 1 to 16).
+inline constexpr int kSwitcherDesktopHotkeyCount = 16;
+
+//! A key combination of a macOS symbolic hotkey.
+struct SwitcherHotkey
+{
+  uint16_t keyCode = 0;   //!< virtual key code
+  uint64_t modifiers = 0; //!< CGEventFlags / NSEventModifierFlags bits (Shift, Control, Option, Command, fn)
+  bool operator==(const SwitcherHotkey &other) const = default;
+};
+
+//! Symbolic hotkey id of "Switch to Desktop \p number", or 0 if there is none for that number.
+int switcherDesktopHotkeyId(int number);
+
+//! The key combination of a symbolic hotkey entry (com.apple.symbolichotkeys, AppleSymbolicHotKeys).
+/*!
+\p enabled and \p parameters are the entry's "enabled" and "value.parameters" ([character, key code,
+modifiers]). None if disabled, malformed, without a key, or without a modifier (a bare key would type
+into the focused app if macOS ignored it).
+*/
+std::optional<SwitcherHotkey> switcherParseSymbolicHotkey(bool enabled, const std::vector<int64_t> &parameters);
+
+//! "Desktop N" of Space \p spaceId among \p entries (one display, Mission Control order): its 1-based
+//! position among the desktops, fullscreen Spaces not counted; 0 if it is not a desktop there.
+int switcherDesktopNumber(const std::vector<SwitcherSpaceEntry> &entries, uint64_t spaceId);
+
+//! Timing of the switch by the "Switch to Desktop N" hotkey, in seconds.
+struct SwitcherHotkeyTiming
+{
+  double timeout = 1.6;        //!< no change of the current Space by then: the hotkey did nothing
+  double animationLimit = 3.0; //!< longest wait while a transition is seen
+};
+
+//! What the hotkey switch observes on one poll.
+struct SwitcherHotkeyObservation
+{
+  uint64_t current = 0;       //!< current Space of the display, 0 if unknown
+  bool animating = false;     //!< the display shows a Space transition
+  double sinceStart = 0;      //!< since the hotkey was posted
+};
+
+//! What the hotkey switch does next (see switcherPlanHotkeySwitch).
+enum class SwitcherHotkeyPlan : uint8_t
+{
+  Wait,     //!< poll again
+  Arrived,  //!< the target is current
+  Elsewhere, //!< another Space became current: go on by stepping from there
+  NoEffect, //!< nothing happened in time: try the other ways
+};
+
+//! Next action of the switch by hotkey from \p from to \p target (pure).
+/*!
+The current Space is reported only when the transition ends (about a second after a keyboard switch),
+so the switch waits for it up to \c timeout, longer while a transition is seen.
+*/
+SwitcherHotkeyPlan switcherPlanHotkeySwitch(
+    uint64_t from, uint64_t target, const SwitcherHotkeyObservation &now, const SwitcherHotkeyTiming &timing = {}
+);
+
 //! Names of one window of a fullscreen Space.
 struct SwitcherTileName
 {

@@ -201,6 +201,64 @@ SwitcherDirectPlan switcherPlanDirectSwitch(
   return {Action::Try, order[tried]};
 }
 
+int switcherDesktopHotkeyId(int number)
+{
+  if (number < 1 || number > kSwitcherDesktopHotkeyCount) {
+    return 0;
+  }
+  return kSwitcherDesktopHotkeyFirst + number - 1;
+}
+
+std::optional<SwitcherHotkey> switcherParseSymbolicHotkey(bool enabled, const std::vector<int64_t> &parameters)
+{
+  // Shift, Control, Option, Command and fn: the same bits in CGEventFlags and NSEventModifierFlags
+  constexpr int64_t kModifierMask = 0x20000 | 0x40000 | 0x80000 | 0x100000 | 0x800000;
+  constexpr int64_t kChordMask = 0x40000 | 0x80000 | 0x100000; // Control, Option, Command
+  constexpr int64_t kMaxKeyCode = 0x7f;
+  if (!enabled || parameters.size() < 3) {
+    return std::nullopt;
+  }
+  const int64_t keyCode = parameters[1];
+  const int64_t modifiers = parameters[2];
+  if (keyCode < 0 || keyCode > kMaxKeyCode || modifiers <= 0 || (modifiers & kChordMask) == 0) {
+    return std::nullopt; // 65535 means "no key"
+  }
+  return SwitcherHotkey{static_cast<uint16_t>(keyCode), static_cast<uint64_t>(modifiers & kModifierMask)};
+}
+
+int switcherDesktopNumber(const std::vector<SwitcherSpaceEntry> &entries, uint64_t spaceId)
+{
+  int number = 0;
+  for (const auto &entry : entries) {
+    if (entry.kind != SwitcherSpaceKind::Desktop) {
+      continue;
+    }
+    ++number;
+    if (entry.id == spaceId) {
+      return number;
+    }
+  }
+  return 0;
+}
+
+SwitcherHotkeyPlan
+switcherPlanHotkeySwitch(uint64_t from, uint64_t target, const SwitcherHotkeyObservation &now, const SwitcherHotkeyTiming &timing)
+{
+  if (now.current != 0 && now.current == target) {
+    return SwitcherHotkeyPlan::Arrived;
+  }
+  if (now.current != 0 && now.current != from) {
+    return SwitcherHotkeyPlan::Elsewhere;
+  }
+  if (now.sinceStart >= timing.animationLimit) {
+    return SwitcherHotkeyPlan::NoEffect;
+  }
+  if (now.animating || now.sinceStart < timing.timeout) {
+    return SwitcherHotkeyPlan::Wait;
+  }
+  return SwitcherHotkeyPlan::NoEffect;
+}
+
 size_t switcherInitialSelection(size_t count, bool reverse)
 {
   if (count < 2) {

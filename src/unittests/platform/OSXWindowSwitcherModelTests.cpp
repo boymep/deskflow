@@ -565,3 +565,66 @@ void OSXWindowSwitcherModelTests::spacesSettled()
   // never stuck
   QVERIFY(switcherSpacesSettled(at(3.0, 0.1, true, false), timing));
 }
+
+void OSXWindowSwitcherModelTests::desktopHotkeys()
+{
+  QCOMPARE(switcherDesktopHotkeyId(1), 118);
+  QCOMPARE(switcherDesktopHotkeyId(16), 133);
+  QCOMPARE(switcherDesktopHotkeyId(0), 0);
+  QCOMPARE(switcherDesktopHotkeyId(17), 0);
+
+  // Control+1 (the default of Desktop 1)
+  const auto control1 = switcherParseSymbolicHotkey(true, {65535, 18, 262144});
+  QVERIFY(control1.has_value());
+  QCOMPARE(control1->keyCode, uint16_t{18});
+  QCOMPARE(control1->modifiers, uint64_t{0x40000});
+  // unknown bits are dropped, fn is kept
+  const auto withFn = switcherParseSymbolicHotkey(true, {65535, 19, 0x40000 | 0x800000 | 0x1});
+  QVERIFY(withFn.has_value());
+  QCOMPARE(withFn->modifiers, uint64_t{0x840000});
+  // disabled, malformed, no key, no modifier, Shift only
+  QVERIFY(!switcherParseSymbolicHotkey(false, {65535, 18, 262144}));
+  QVERIFY(!switcherParseSymbolicHotkey(true, {65535, 18}));
+  QVERIFY(!switcherParseSymbolicHotkey(true, {65535, 65535, 262144}));
+  QVERIFY(!switcherParseSymbolicHotkey(true, {65535, 18, 0}));
+  QVERIFY(!switcherParseSymbolicHotkey(true, {65535, 18, 0x20000}));
+
+  // desktops are counted without the fullscreen Spaces between them
+  const std::vector<SwitcherSpaceEntry> entries{
+      {1, SwitcherSpaceKind::Desktop, {}},
+      {1143, SwitcherSpaceKind::Fullscreen, {}},
+      {5, SwitcherSpaceKind::Desktop, {}},
+      {1149, SwitcherSpaceKind::Fullscreen, {}},
+      {7, SwitcherSpaceKind::Desktop, {}},
+  };
+  QCOMPARE(switcherDesktopNumber(entries, 1), 1);
+  QCOMPARE(switcherDesktopNumber(entries, 5), 2);
+  QCOMPARE(switcherDesktopNumber(entries, 7), 3);
+  QCOMPARE(switcherDesktopNumber(entries, 1143), 0);
+  QCOMPARE(switcherDesktopNumber(entries, 99), 0);
+}
+
+void OSXWindowSwitcherModelTests::hotkeySwitchPlanner()
+{
+  const SwitcherHotkeyTiming timing;
+  auto at = [](uint64_t current, double sinceStart, bool animating) {
+    SwitcherHotkeyObservation o;
+    o.current = current;
+    o.sinceStart = sinceStart;
+    o.animating = animating;
+    return o;
+  };
+  // the current Space shows up late (about a second): wait for it
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(1149, 0.1, false), timing), SwitcherHotkeyPlan::Wait);
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(1149, 1.0, false), timing), SwitcherHotkeyPlan::Wait);
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(1, 0.97, false), timing), SwitcherHotkeyPlan::Arrived);
+  // the hotkey went somewhere else
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(5, 0.97, false), timing), SwitcherHotkeyPlan::Elsewhere);
+  // unknown current Space is no landing
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(0, 0.5, false), timing), SwitcherHotkeyPlan::Wait);
+  // nothing happened
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(1149, 1.6, false), timing), SwitcherHotkeyPlan::NoEffect);
+  // a running transition is waited for, but not forever
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(1149, 2.0, true), timing), SwitcherHotkeyPlan::Wait);
+  QCOMPARE(switcherPlanHotkeySwitch(1149, 1, at(1149, 3.0, true), timing), SwitcherHotkeyPlan::NoEffect);
+}

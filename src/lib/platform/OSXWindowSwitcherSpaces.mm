@@ -45,6 +45,7 @@ using PostEventRecordFn = CGError (*)(ProcessSerialNumber *, uint8_t *record);
 using GetProcessForPidFn = OSStatus (*)(pid_t, ProcessSerialNumber *);
 using WindowIsOrderedInFn = CGError (*)(int32_t connection, uint32_t windowId, bool *orderedIn);
 using DisplayIsAnimatingFn = bool (*)(int32_t connection, CFStringRef displayIdentifier);
+using GetActiveSpaceFn = uint64_t (*)(int32_t connection);
 
 constexpr int32_t kAllSpacesMask = 0x7;        // current, other and user Spaces
 constexpr int kUserSpaceType = 0;              // a Mission Control desktop
@@ -89,6 +90,8 @@ struct Spi
   // optional: tells a direct Space switch that started from one that did nothing
   DisplayIsAnimatingFn displayIsAnimating =
       reinterpret_cast<DisplayIsAnimatingFn>(lookup({"SLSManagedDisplayIsAnimating", "CGSManagedDisplayIsAnimating"}));
+  // optional: only logged, to compare with the current Space of the managed displays
+  GetActiveSpaceFn getActiveSpace = reinterpret_cast<GetActiveSpaceFn>(lookup({"SLSGetActiveSpace", "CGSGetActiveSpace"}));
 
   bool spaces() const
   {
@@ -261,14 +264,17 @@ struct DisplaySpaces
   uint64_t current = 0;
   std::vector<SwitcherSpaceEntry> entries; //!< desktops and fullscreen Spaces, Mission Control order
   std::vector<uint64_t> order;             //!< their ids
+  NSUInteger index = 0;                    //!< position among the managed displays (0: the first)
 };
 
 bool readDisplaySpaces(uint32_t displayId, DisplaySpaces &out)
 {
-  NSDictionary *display = managedDisplay(copyDisplays(spi().connection()), displayId);
+  NSArray *displays = copyDisplays(spi().connection());
+  NSDictionary *display = managedDisplay(displays, displayId);
   if (display == nil) {
     return false;
   }
+  out.index = [displays indexOfObjectIdenticalTo:display];
   out.current = spaceIdOf(display[@"Current Space"]);
   if (NSString *identifier = display[@"Display Identifier"]; [identifier isKindOfClass:[NSString class]]) {
     out.identifier = identifier;
@@ -303,6 +309,12 @@ int msSince(CFAbsoluteTime start, CFAbsoluteTime now)
   return static_cast<int>((now - start) * 1000);
 }
 
+//! The active Space as the window server reports it apart from the managed displays, 0 if unknown.
+uint64_t activeSpace()
+{
+  return spi().getActiveSpace != nullptr ? spi().getActiveSpace(spi().connection()) : 0;
+}
+
 //! One Space switch in progress (main thread only). Owned by the scheduled blocks through a shared_ptr.
 struct SpaceSwitch
 {
@@ -321,6 +333,7 @@ struct SpaceSwitch
   CFAbsoluteTime stepAnimationFrom = 0; //!< when a transition was first seen after the last step, 0 if not
   CFAbsoluteTime stepAnimationTo = 0;   //!< when it was last seen
   CFAbsoluteTime stepLandedAt = 0;      //!< when the last step showed up in the current Space, 0 if not yet
+  CFAbsoluteTime stepActiveAt = 0;      //!< when the active Space showed it, 0 if not yet (logged only)
   bool stepLogged = false;              //!< the outcome of the last step is logged
   int steps = 0;                        //!< steps posted so far
   int resyncs = 0;                      //!< times the reported current Space was taken over
@@ -337,6 +350,14 @@ struct SpaceSwitch
   CFAbsoluteTime methodAt = 0;      //!< when the last method was tried
   CFAbsoluteTime animationAt = 0;   //!< when a transition was last seen after it, 0 if never
   bool sawAnimation = false;        //!< a transition was seen at all
+
+  // "Switch to Desktop N" hotkey, before the direct switch
+  int hotkeyNumber = 0;             //!< N, 0 if the hotkey is not used
+  deskflow::osx::SwitcherHotkey hotkey;
+  uint64_t hotkeyFrom = 0;          //!< Space current when the hotkey was posted
+  CFAbsoluteTime hotkeyAt = 0;      //!< when it was posted
+  CFAbsoluteTime hotkeyActiveAt = 0; //!< when the active Space showed the target, 0 if not yet (logged only)
+  bool hotkeySawAnimation = false;
 };
 
 // main thread; the switch that is running. A new commit replaces it, which stops the old one.
@@ -404,9 +425,13 @@ void logStepOutcome(const SpaceSwitch &session, CFAbsoluteTime now, const char *
   if (session.stepLandedAt > 0) {
     snprintf(landed, sizeof(landed), "space reported at %d ms", msSince(session.postedAt, session.stepLandedAt));
   }
+  char active[48] = "";
+  if (session.stepActiveAt > 0) {
+    snprintf(active, sizeof(active), ", active space at %d ms", msSince(session.postedAt, session.stepActiveAt));
+  }
   LOG_INFO(
-      "space switch #%llu: step %d %s after %d ms (%s, %s)", static_cast<unsigned long long>(session.id),
-      session.steps, outcome, msSince(session.postedAt, now), transition, landed
+      "space switch #%llu: step %d %s after %d ms (%s, %s%s)", static_cast<unsigned long long>(session.id),
+      session.steps, outcome, msSince(session.postedAt, now), transition, landed, active
   );
 }
 
@@ -454,6 +479,9 @@ void continueSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session)
     const bool landed = spaces.current == session->assumed;
     if (landed && session->stepLandedAt == 0) {
       session->stepLandedAt = now;
+    }
+    if (session->stepActiveAt == 0 && activeSpace() == session->assumed) {
+      session->stepActiveAt = now;
     }
     session->confirmed = spaces.current; // on the way or there: a step back would show as elsewhere
     deskflow::osx::SwitcherStepObservation observation;
@@ -518,6 +546,7 @@ void continueSpaceSwitch(const std::shared_ptr<SpaceSwitch> &session)
   session->stepAnimationFrom = 0;
   session->stepAnimationTo = 0;
   session->stepLandedAt = 0;
+  session->stepActiveAt = 0;
   session->stepLogged = false;
   ++session->steps;
   g_lastSpaceAction = now;
@@ -906,6 +935,206 @@ std::vector<SwitcherTile> switcherVisibleFullscreenWindows()
   return result;
 }
 
+//! What a Space is, for the log.
+static const char *spaceKindName(const DisplaySpaces &spaces, uint64_t spaceId)
+{
+  const auto it = std::find_if(spaces.entries.begin(), spaces.entries.end(), [spaceId](const auto &entry) {
+    return entry.id == spaceId;
+  });
+  if (it == spaces.entries.end()) {
+    return "unknown";
+  }
+  return it->kind == SwitcherSpaceKind::Fullscreen ? "fullscreen" : "desktop";
+}
+
+//! Goes to the target of \p session by bringing a window of it forward, or else by stepping.
+/*!
+\p note says why the desktop hotkey was not used (empty if it was not considered), for the log.
+*/
+static void startDirectOrStepping(
+    const std::shared_ptr<SpaceSwitch> &session, const DisplaySpaces &spaces, const std::string &note
+)
+{
+  const auto id = static_cast<unsigned long long>(session->id);
+  const uint64_t spaceId = session->target;
+  const auto target = std::find_if(spaces.entries.begin(), spaces.entries.end(), [spaceId](const auto &entry) {
+    return entry.id == spaceId;
+  });
+  const char *kind = spaceKindName(spaces, spaceId);
+  const std::string suffix = note.empty() ? "" : ", " + note;
+  // the window to bring forward: the (first) window of a fullscreen Space, the front window of a desktop
+  std::optional<SwitcherTile> window;
+  if (target != spaces.entries.end() && spaces.current != spaceId && !directOrder().empty()) {
+    if (target->kind == SwitcherSpaceKind::Fullscreen) {
+      if (!target->tiles.empty()) {
+        window = target->tiles.front();
+      }
+    } else {
+      window = frontWindowOfDesktop(spaceId);
+    }
+  }
+  if (!window) {
+    const bool emptyDesktop = target != spaces.entries.end() && target->kind == SwitcherSpaceKind::Desktop &&
+                              spaces.current != spaceId && !directOrder().empty();
+    LOG_INFO(
+        "space switch #%llu: to %s space %llu from %llu by stepping (%s%s)", id, kind,
+        static_cast<unsigned long long>(spaceId), static_cast<unsigned long long>(spaces.current),
+        emptyDesktop ? "no window on it" : "no direct way", suffix.c_str()
+    );
+    continueSpaceSwitch(session);
+    return;
+  }
+  session->pid = window->pid;
+  session->windowId = window->windowId;
+  session->directFrom = spaces.current;
+  session->order = directOrder();
+  session->directStart = CFAbsoluteTimeGetCurrent();
+  if (session->remote != nil) {
+    session->element = [session->remote windowNow:window->windowId pid:window->pid budget:kResolveBudget].element;
+  }
+  LOG_INFO(
+      "space switch #%llu: to %s space %llu from %llu directly (window %u of pid %d, %s element, order %s, %s%s)", id,
+      kind, static_cast<unsigned long long>(spaceId), static_cast<unsigned long long>(spaces.current),
+      window->windowId, static_cast<int>(window->pid), session->element != nil ? "with" : "no",
+      orderName(session->order).c_str(),
+      spi().displayIsAnimating != nullptr ? "transition detection on" : "no transition detection", suffix.c_str()
+  );
+  continueDirectSwitch(session);
+}
+
+// main thread; a desktop hotkey that was posted and did nothing: not used again until its keys change
+static std::optional<SwitcherHotkey> g_ignoredHotkey;
+
+//! The key combination of "Switch to Desktop \p number" if it is turned on in the Keyboard settings.
+/*!
+Read from the user's preferences on every call (never written). \p why tells why there is none.
+*/
+static std::optional<SwitcherHotkey> desktopHotkey(int number, std::string &why)
+{
+  const int hotkeyId = switcherDesktopHotkeyId(number);
+  if (hotkeyId == 0) {
+    why = "no desktop hotkey for desktop " + std::to_string(number);
+    return std::nullopt;
+  }
+  CFStringRef domain = CFSTR("com.apple.symbolichotkeys");
+  CFPreferencesAppSynchronize(domain); // pick up changes made in System Settings meanwhile
+  NSDictionary *all = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("AppleSymbolicHotKeys"), domain));
+  NSDictionary *entry = [all isKindOfClass:[NSDictionary class]] ? all[[@(hotkeyId) stringValue]] : nil;
+  bool enabled = false;
+  std::vector<int64_t> parameters;
+  if ([entry isKindOfClass:[NSDictionary class]]) {
+    if (NSNumber *on = entry[@"enabled"]; [on isKindOfClass:[NSNumber class]]) {
+      enabled = on.boolValue;
+    }
+    NSDictionary *value = entry[@"value"];
+    NSArray *list = [value isKindOfClass:[NSDictionary class]] ? value[@"parameters"] : nil;
+    if ([list isKindOfClass:[NSArray class]]) {
+      for (NSNumber *parameter in list) {
+        parameters.push_back([parameter isKindOfClass:[NSNumber class]] ? parameter.longLongValue : -1);
+      }
+    }
+  }
+  const auto hotkey = switcherParseSymbolicHotkey(enabled, parameters);
+  if (!hotkey) {
+    why = "desktop hotkey " + std::to_string(number) + " off";
+  } else if (g_ignoredHotkey == hotkey) {
+    why = "desktop hotkey " + std::to_string(number) + " skipped, it did nothing before";
+    return std::nullopt;
+  }
+  return hotkey;
+}
+
+//! Posts the key combination \p hotkey (down and up), like the side buttons post Control+Arrow.
+static void postHotkey(const SwitcherHotkey &hotkey)
+{
+  for (const bool down : {true, false}) {
+    CGEventRef event = CGEventCreateKeyboardEvent(nullptr, hotkey.keyCode, down);
+    if (event == nullptr) {
+      return;
+    }
+    CGEventSetFlags(event, static_cast<CGEventFlags>(hotkey.modifiers));
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+  }
+}
+
+static void continueHotkeySwitch(const std::shared_ptr<SpaceSwitch> &session);
+
+static void scheduleHotkeySwitch(std::shared_ptr<SpaceSwitch> session, CFAbsoluteTime delay)
+{
+  // the block keeps its own copy of the shared_ptr (see scheduleSpaceSwitch)
+  dispatch_after(
+      dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        continueHotkeySwitch(session);
+      }
+  );
+}
+
+//! Waits for the "Switch to Desktop N" hotkey to land; falls back to the other ways if it does not.
+static void continueHotkeySwitch(const std::shared_ptr<SpaceSwitch> &session)
+{
+  const auto id = static_cast<unsigned long long>(session->id);
+  if (!spaceSwitchLive(session)) {
+    return; // replaced: the newer switch logged it
+  }
+  DisplaySpaces spaces;
+  if (!readDisplaySpaces(session->displayId, spaces)) {
+    LOG_INFO("space switch #%llu: spaces unknown after the desktop hotkey, stopped", id);
+    endSpaceSwitch(session);
+    return;
+  }
+  const CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+  SwitcherHotkeyObservation observation;
+  observation.current = spaces.current;
+  observation.animating = displayAnimating(spaces, session->displayId);
+  observation.sinceStart = now - session->hotkeyAt;
+  session->hotkeySawAnimation = session->hotkeySawAnimation || observation.animating;
+  if (session->hotkeyActiveAt == 0 && activeSpace() == session->target) {
+    session->hotkeyActiveAt = now;
+  }
+  const auto plan = switcherPlanHotkeySwitch(session->hotkeyFrom, session->target, observation);
+  if (plan == SwitcherHotkeyPlan::Wait) {
+    scheduleHotkeySwitch(session, kSpacePollInterval);
+    return;
+  }
+  char active[48] = "";
+  if (session->hotkeyActiveAt > 0) {
+    snprintf(active, sizeof(active), ", active space at %d ms", msSince(session->hotkeyAt, session->hotkeyActiveAt));
+  }
+  const char *transition = session->hotkeySawAnimation ? "transition seen" : "no transition seen";
+  const int elapsedMs = msSince(session->hotkeyAt, now);
+  // no step of this switch is out any more
+  session->confirmed = 0;
+  session->assumed = 0;
+  switch (plan) {
+  case SwitcherHotkeyPlan::Wait:
+    return;
+  case SwitcherHotkeyPlan::Arrived:
+    g_ignoredHotkey.reset();
+    LOG_INFO(
+        "space switch #%llu: via desktop hotkey %d, arrived after %d ms (%s%s)", id, session->hotkeyNumber, elapsedMs,
+        transition, active
+    );
+    endSpaceSwitch(session);
+    return;
+  case SwitcherHotkeyPlan::Elsewhere:
+    LOG_INFO(
+        "space switch #%llu: desktop hotkey %d landed on space %llu after %d ms (%s%s), stepping from there", id,
+        session->hotkeyNumber, static_cast<unsigned long long>(spaces.current), elapsedMs, transition, active
+    );
+    continueSpaceSwitch(session);
+    return;
+  case SwitcherHotkeyPlan::NoEffect:
+    g_ignoredHotkey = session->hotkey;
+    LOG_INFO(
+        "space switch #%llu: desktop hotkey %d did nothing in %d ms (%s%s), not used again until its keys change", id,
+        session->hotkeyNumber, elapsedMs, transition, active
+    );
+    startDirectOrStepping(session, spaces, "desktop hotkey " + std::to_string(session->hotkeyNumber) + " did nothing");
+    return;
+  }
+}
+
 //! Starts \p session once the Spaces are settled: no transition running, none just asked for, and the
 //! steps of a replaced switch shown in the current Space (or given up on).
 static void startSpaceSwitchWhenSettled(const std::shared_ptr<SpaceSwitch> &session)
@@ -946,51 +1175,33 @@ static void startSpaceSwitchWhenSettled(const std::shared_ptr<SpaceSwitch> &sess
   }
   g_pendingSpace = 0;
   const uint64_t spaceId = session->target;
-  const auto target = std::find_if(spaces.entries.begin(), spaces.entries.end(), [spaceId = session->target](const auto &entry) {
-    return entry.id == spaceId;
-  });
-  const char *kind = target == spaces.entries.end()                  ? "unknown"
-                     : target->kind == SwitcherSpaceKind::Fullscreen ? "fullscreen"
-                                                                     : "desktop";
-  // the window to bring forward: the (first) window of a fullscreen Space, the front window of a desktop
-  std::optional<SwitcherTile> window;
-  if (target != spaces.entries.end() && spaces.current != spaceId && !directOrder().empty()) {
-    if (target->kind == SwitcherSpaceKind::Fullscreen) {
-      if (!target->tiles.empty()) {
-        window = target->tiles.front();
-      }
-    } else {
-      window = frontWindowOfDesktop(spaceId);
+  // a desktop: the "Switch to Desktop N" hotkey jumps there in one transition, if it is turned on. Its N
+  // counts the desktops of the first display only for sure (the numbering of other displays may go on
+  // from there), so it is used on the first display only.
+  std::string note;
+  const int number = switcherDesktopNumber(spaces.entries, spaceId);
+  if (number > 0 && spaces.current != spaceId) {
+    if (spaces.index != 0) {
+      note = "desktop hotkey not used on this display";
+    } else if (const auto hotkey = desktopHotkey(number, note)) {
+      session->hotkeyNumber = number;
+      session->hotkey = *hotkey;
+      session->hotkeyFrom = spaces.current;
+      session->confirmed = spaces.current; // a newer switch waits for it like for a step
+      session->assumed = spaceId;
+      LOG_INFO(
+          "space switch #%llu: to desktop space %llu from %llu via desktop hotkey %d (key %u, modifiers 0x%llx)", id,
+          static_cast<unsigned long long>(spaceId), static_cast<unsigned long long>(spaces.current), number,
+          static_cast<unsigned>(hotkey->keyCode), static_cast<unsigned long long>(hotkey->modifiers)
+      );
+      session->hotkeyAt = CFAbsoluteTimeGetCurrent();
+      g_lastSpaceAction = session->hotkeyAt;
+      postHotkey(*hotkey);
+      scheduleHotkeySwitch(session, kSpacePollInterval);
+      return;
     }
   }
-  if (!window) {
-    LOG_INFO(
-        "space switch #%llu: to %s space %llu from %llu by stepping%s", id, kind,
-        static_cast<unsigned long long>(spaceId), static_cast<unsigned long long>(spaces.current),
-        target != spaces.entries.end() && target->kind == SwitcherSpaceKind::Desktop && spaces.current != spaceId &&
-                !directOrder().empty()
-            ? " (no window on it)"
-            : ""
-    );
-    continueSpaceSwitch(session);
-    return;
-  }
-  session->pid = window->pid;
-  session->windowId = window->windowId;
-  session->directFrom = spaces.current;
-  session->order = directOrder();
-  session->directStart = CFAbsoluteTimeGetCurrent();
-  if (session->remote != nil) {
-    session->element = [session->remote windowNow:window->windowId pid:window->pid budget:kResolveBudget].element;
-  }
-  LOG_INFO(
-      "space switch #%llu: to %s space %llu from %llu directly (window %u of pid %d, %s element, order %s, %s)", id,
-      kind, static_cast<unsigned long long>(spaceId), static_cast<unsigned long long>(spaces.current),
-      window->windowId, static_cast<int>(window->pid), session->element != nil ? "with" : "no",
-      orderName(session->order).c_str(),
-      spi().displayIsAnimating != nullptr ? "transition detection on" : "no transition detection"
-  );
-  continueDirectSwitch(session);
+  startDirectOrStepping(session, spaces, note);
 }
 
 void switcherSwitchToSpace(uint32_t displayId, uint64_t spaceId, DeskflowSwitcherRemoteWindows *remote)
